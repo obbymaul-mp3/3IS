@@ -7,23 +7,23 @@
  * The design follows the Nice Crystal 333 browser instrument (position, size, density, pitch, random, spread, mix,
  * freeze, reverse), scaled down for the chip: CG_NG grains, a ring of CG_N samples, integers only.
  *
- * Time: the ring holds CG_N samples at FS / 2 (22.05 kHz: 0.74 s). A grain reads it with linear interpolation, its
+ * Time: the ring holds CG_N samples at FS / 2 (22.05 kHz: 0.37 s). A grain reads it with linear interpolation, its
  * Q16 step against the ring being ratio / 2 per output sample. Where a grain may start: DELAY samples behind the
  * write head, at least its own span (so it never reads what is not written yet, frozen or not) and at most what
  * leaves its length and the head's travel inside the ring. POS sets the delay across that range, RAND scatters it.
- * A grain is shortened when pitch and size would not fit the ring (CG_N 16384: a 250 ms grain up to +12 semitones,
+ * A grain is shortened when pitch and size would not fit the ring (CG_N 8192: a shorter grain at high pitch,
  * 150 ms at +24).
  *
  * Cost: per grain per output sample about 30 instructions (two reads, a lerp, a parabolic window, two pans). CG_NG 8
  * grains: ~240 a sample at most, against 1000 .. 1500 for the heaviest engines; nothing is processed while MIX is 0
  * (the ring still records, so raising MIX has sound to play at once). The memory: the ring and the state are
- * .pool, ~33 KB (CG_LOG2 sets it); the pool had ~50 KB free before this (see the build report: "POOL"). The values
+ * .pool, ~17 KB (CG_LOG2 sets it); the pool had ~50 KB free before this (see the build report: "POOL"). The values
  * are not saved with the settings (a power cycle returns the defaults, MIX 0 = off). The device's toolchain has no
  * 64-bit division (cf_arp.c): every divide here is 32-bit; the 64-bit parts are multiplies and shifts only. */
 
 _Static_assert(CTL == 32 && FS == 44100u, "cf_gran.c: a block is 32 samples at 44.1 kHz");
 
-#define CG_LOG2 14                       /* the ring: 2^14 samples at FS / 2 */
+#define CG_LOG2 13                       /* the ring: 2^13 samples at FS / 2 (14 overflowed .pool by 4100 B on the device build) */
 #define CG_N (1u << CG_LOG2)
 #define CG_MASK (CG_N - 1u)
 #define CG_NG 8                          /* grains at once */
