@@ -1,6 +1,6 @@
 # GRAIN: a granular layer on CoralFlower's master bus
 
-Whatever the chord part, the bass part and the sequencer play is recorded into a short ring (mono, 22.05 kHz, 0.74 s) and
+Whatever the chord part, the bass part and the sequencer play is recorded into a short ring (mono, 22.05 kHz, 0.37 s) and
 cut into grains that play back across the stereo field. The grains are mixed with the dry sound by MIX and then go
 through the effects chain (cf_fx.c), so the reverb and the delay act on the grains. Freeze stops the recording: the grains
 then play a held moment of the music, so a chord, a pattern or a loop can be turned into a texture and played over.
@@ -19,7 +19,7 @@ Files: `firmware/src/cf_gran.c` (the engine; `cf_gran_run` is called first in `c
 
 Design notes
 - Integers only, and no 64-bit division (the device's toolchain has none, see cf_arp.c).
-- The ring and the state are in `.pool` (about 33 KB). `CG_LOG2` (cf_gran.c) sets the ring: 14 is 16384 samples; 13 halves
+- The ring and the state are in `.pool` (about 17 KB). `CG_LOG2` (cf_gran.c) sets the ring: 14 is 16384 samples; 13 halves
   the memory and the time. Check the POOL line of the build report before and after changing it.
 - A grain never reads what is not yet written, frozen or live: it starts at least its own span behind the head and is
   shortened when pitch and size do not fit the ring (a 250 ms grain up to +12 semitones, 150 ms at +24).
