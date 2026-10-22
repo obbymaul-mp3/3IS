@@ -260,7 +260,7 @@
             <div class="fold__cols">
               <div>
                 <p class="note note--warn">The official firmware can’t use CoralFlower’s sounds, patterns or settings, so this page saves them to a backup file first.</p>
-                <p>Download the official FM-1 V15 from <a href="https://www.m-vave.com/download" target="_blank" rel="noopener">M-VAVE Downloads</a>. Then choose its FM-1.fwsc file here, exactly as downloaded. Your browser checks the file, and nothing is uploaded.</p>
+                <p>Download the official FM-1 firmware (V15 or V16) from <a href="https://www.m-vave.com/download" target="_blank" rel="noopener">M-VAVE Downloads</a>. Then choose its FM-1.fwsc file here, exactly as downloaded. Your browser checks the file, and nothing is uploaded.</p>
               </div>
               <div>
                 <div class="filepick">
@@ -269,7 +269,7 @@
                   <input id="stock-file" type="file" accept=".fwsc" hidden>
                 </div>
                 <label class="check"><input id="stock-recovery" type="checkbox"><span>I’m finishing an update that was cut off, and I already have a backup on this computer.</span></label>
-                <div class="actions"><button class="btn btn--secondary" id="stock-go" type="button" disabled>Back up and return to official V15</button></div>
+                <div class="actions"><button class="btn btn--secondary" id="stock-go" type="button" disabled>Back up and return to the official firmware</button></div>
               </div>
             </div>
             <progress id="stock-bar" max="100" value="0" aria-label="Progress of the return to the official firmware"></progress>
@@ -358,7 +358,7 @@
       </details>
       <details class="fold">
         <summary>How do I go back to the official firmware?</summary>
-        <div class="fold__body"><p>Download the official FM-1 V15 file from <span class="nowrap">m-vave.com</span>. Then open “<a href="#stock">Return to the official firmware</a>” on this page, choose that file and press “Back up and return to official V15”.</p></div>
+        <div class="fold__body"><p>Download the official FM-1 file (V15 or V16) from <span class="nowrap">m-vave.com</span>. Then open “<a href="#stock">Return to the official firmware</a>” on this page, choose that file and press “Back up and return to the official firmware”.</p></div>
       </details>
       <details class="fold">
         <summary>How do I update?</summary>
@@ -437,7 +437,7 @@
   <a class="opt" href="mailto:iambemoli@gmail.com"><span class="glyph" aria-hidden="true">@</span><span class="tx"><span class="nm">Email</span><span class="ad">iambemoli@gmail.com</span></span><span class="go">&#8599;</span></a>
 </dialog>
 <script type="module">
-import { Package, productOf, logicalImage, sha256hex, crc16, validateStockPackage, STOCK_V15_SIZE, STOCK_APP_SIZE } from "./fm1pkg.js";
+import { Package, productOf, logicalImage, sha256hex, crc16, validateStockPackage, STOCK_FILES, STOCK_APP_SIZE } from "./fm1pkg.js";
 import { Updater, classifyFirmware, refusalText } from "./fm1ota.js";
 import { BackupConnection, captureBackup, restoreBackup, deviceInfo, restartDevice, readBackup, backupFamily, backupFileName, objectNames } from "./fm1backup.js";
 
@@ -516,11 +516,11 @@ const TEXT = {
     dnOther: "Written, but the FM-1 now says it runs {name}.",
     // the return to the official V15
     stockNeedBackup: "An FM-1 in update mode can’t be backed up. Tick “I’m finishing an update that was cut off” only if you already saved a backup.",
-    stockValid: "The official V15 file is valid. Ready.",
-    stockConfirm: "Is the backup file saved on this computer? Then continue to install the official V15. The official firmware can’t open CoralFlower’s data.",
+    stockValid: "The official firmware file is valid. Ready.",
+    stockConfirm: "Is the backup file saved on this computer? Then continue to install the official firmware. The official firmware can’t open CoralFlower’s data.",
     stockError: "Not the official firmware file: ",
-    stockWrongFile: "Choose the unmodified official FM-1 V15 file (FM-1.fwsc).",
-    stockDnLine: "The FM-1 now runs the official V15 ({identity}).",
+    stockWrongFile: "Choose the unmodified official FM-1 V15 or V16 file (FM-1.fwsc).",
+    stockDnLine: "The FM-1 now runs the official firmware ({identity}).",
     stockDnSaved: "CoralFlower’s sounds, patterns and settings are in the backup saved before the write: {file}.",
     stockDnEarlier: "No backup was saved this time. CoralFlower’s sounds, patterns and settings are in the backup you saved earlier.",
   },
@@ -945,7 +945,7 @@ $("stock-file").addEventListener("change", async () => {
   if (!file) return;
   $("stock-name").textContent = file.name || t("noFile");
   try {
-    if (file.size !== STOCK_V15_SIZE) throw new Error(t("stockWrongFile"));
+    if (!STOCK_FILES.some((f) => f.size === file.size)) throw new Error(t("stockWrongFile"));
     const verified = await validateStockPackage(new Uint8Array(await file.arrayBuffer()));
     if (epoch !== stockFileEpoch) return;
     stock = verified; sayAt(OUT_STOCK, () => sayK("stockValid")); stockShow(false); lockInstaller(writing);
