@@ -5,27 +5,24 @@
 
 #define CF_SPLASH_MS 1400u
 
+/* 3IS shows its own version here; FELUCCA_VERSION stays "CoralFlower ..": the update tool reads it */
+#define CF_SHOWN_VERSION "3IS 0.5"
+
 static void cf_splash_frame(uint32_t t)
 {
-    static const char *const NAME = "CoralFlower";
-    int i, n = (int)str_len(NAME), shown, x;
-    flora_render(&flo, &fl_cv);
-    fb_fill(FL_BG);
-    fb_blit2x(0, 20, fl_px, FLW, FLH);
-    /* the name: letter by letter from 500 ms, each one brightening through the ramp (shown: how many letters are in) */
-    shown = t < 500u ? 0 : 1 + (int)((t - 500u) / 50u);
-    x = 120 - fb_text_w(&CF_FONT_UI, NAME, 2) / 2;
-    for (i = 0; i < n; i++) {
-        char ch[2];
-        int age = shown - 1 - i;                  /* (-1: not in yet) */
-        ch[0] = NAME[i];
-        ch[1] = 0;
-        if (age >= 0)
-            fb_text(&CF_FONT_UI, x, 180, ch, age > 3 ? FL_INK : age > 1 ? C_ACC(0) : C_ACC(2), 2);
-        x += fb_text_w(&CF_FONT_UI, ch, 2);
+    static const uint8_t SKY[4] = {FL_L0, FL_L1, FL_L2, FL_L3};
+    int r, cols, lx = 120 - ICE_LOGO_W, ly = 52;
+    /* the night sky, 2 px rows, the bands dithered into each other */
+    for (r = 0; r < 120; r++) {
+        int tt = r * 768 / 120, i = tt >> 8;
+        fb_rect(0, 2 * r, 240, 2, (tt & 255) > 128 && !(r & 1) ? SKY[i + 1] : SKY[i]);
     }
+    cf_snow(0, 0, 240, 240, t * 3u, 60, 0x55u);
+    /* the logo wipes in from the left between 300 and 900 ms */
+    cols = t < 300u ? 0 : t >= 900u ? ICE_LOGO_W : (int)((t - 300u) * (uint32_t)ICE_LOGO_W / 600u);
+    fb_sprite2x(lx, ly, ice_logo, ICE_LOGO_W, ICE_LOGO_H, cols);
     if (t > 900u)
-        fb_text_c(&CF_FONT_UI, 120, 212, FELUCCA_VERSION, FL_INK3, 1);
+        fb_text_c(&CF_FONT_UI, 120, 190, CF_SHOWN_VERSION, FL_I_ICE3, 1);
 }
 
 /* main.c's splash (IRQs off): the first picture only, the scene before the seed sprouts; the UI's first frames grow it
