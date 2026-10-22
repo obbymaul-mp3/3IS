@@ -970,6 +970,7 @@ static void fl_draw_part(flora_t *f, flc_t *c, int i)
 
 static const uint8_t fl_bayer[16] = {0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5};
 static const uint8_t FL_DUSK[5] = {FL_BG, FL_L0, FL_L1, FL_L2, FL_L3};
+static const uint8_t FL_RING[5] = {FL_BG, FL_BG, FL_BG, FL_I_ICE3, FL_I_ICE};
 static const uint8_t FL_WATER[5] = {FL_BG, FL_S0, FL_S1, FL_S2, FL_S3};
 
 /* a gradient through the stops, ordered-dithered: t in Q8 steps (0 = st[0] .. (n - 1) * 256 = st[n - 1]) */
@@ -1010,7 +1011,7 @@ static void fl_bd_dusk(flora_t *f, flc_t *c, int scene)
         int sx = (int)(h % (uint32_t)W), sy = (int)((h >> 8) % 44u), tw = (int)(((f->t >> 6) + h) % 48u);
         if ((sx < 38 && sy < 20) || (sx > 84 && sy < 10) || (sx > 84 && sy > 14 && sy < 36))
             continue;
-        px[sy * W + sx] = tw < 2 ? FL_C(FL_R_SAND, 0) : (h >> 20) & 1 ? FL_C(FL_R_SAND, 2) : FL_C(FL_R_SAGE, 2);
+        px[sy * W + sx] = tw < 2 ? FL_INK : (h >> 20) & 1 ? FL_I_ICE2 : FL_I_ICE3;
     }
     {
         int mx = W * 4 / 5, my = 24;
@@ -1018,7 +1019,7 @@ static void fl_bd_dusk(flora_t *f, flc_t *c, int scene)
             for (x = mx - 10; x <= mx + 10; x++) {
                 int dx = x - mx, dy = y - my, d2 = dx * dx + dy * dy, e2 = (dx - 3) * (dx - 3) + (dy + 2) * (dy + 2);
                 if (d2 <= 36)
-                    fl_put(c, x, y, e2 > 25 ? (d2 > 25 || e2 < 34 ? FL_C(FL_R_SAND, 1) : FL_C(FL_R_SAND, 0)) : FL_L1);
+                    fl_put(c, x, y, e2 > 25 ? (d2 > 25 || e2 < 34 ? FL_I_ICE2 : FL_I_ICE) : FL_L1);
                 else if (d2 <= 110)
                     fl_put(c, x, y, fl_grad(FL_DUSK, 5, fl_sky_t(y, hz) + (110 - d2) * 3, x, y));
             }
@@ -1026,15 +1027,15 @@ static void fl_bd_dusk(flora_t *f, flc_t *c, int scene)
     for (x = 0; x < W; x++) {
         int hf = fl_hill_far(x, H), hn = fl_hill_near(x, H);
         for (y = hf; y < H; y++)
-            px[y * W + x] = y >= hn ? FL_BG : y == hf ? FL_L1 : FL_L0;
+            px[y * W + x] = y > hn ? FL_I_ICE2 : y == hn ? FL_I_ICE : y == hf ? FL_I_ICE3 : FL_C(FL_R_SEA, 2);
     }
     for (i = 0; i < 16; i++) { /* grass tufts on the near ground */
         uint32_t h = fl_hash32((uint32_t)i * 104729u + 5u);
         int gx = (int)(h % (uint32_t)W), hn = fl_hill_near(gx, H), k = 1 + (int)((h >> 9) % 3u);
         for (y = hn - k; y < hn; y++)
-            px[y * W + gx] = FL_BG;
+            px[y * W + gx] = FL_I_ICE;
         if (h & 0x100000u)
-            fl_put(c, gx + 1, hn - 1, FL_BG);
+            fl_put(c, gx + 1, hn - 1, FL_I_ICE);
     }
 }
 
@@ -1075,7 +1076,7 @@ static void fl_bd_bokeh(flora_t *f, flc_t *c)
 /* rings of sound: every chord sends a ring out of the organism; when it is quiet one comes now and then */
 static void fl_bd_rings(flora_t *f, flc_t *c, int sea)
 {
-    const uint8_t *st = sea ? FL_WATER : FL_DUSK;
+    const uint8_t *st = sea ? FL_WATER : FL_RING;
     int i, cx = f->cx, cy = f->cy - 34;
     uint32_t idle = f->t % 4200u;
     for (i = 0; i < 5; i++) {
@@ -1100,7 +1101,7 @@ static void fl_bd_rings(flora_t *f, flc_t *c, int sea)
 
 static void fl_backdrop(flora_t *f, flc_t *c)
 {
-    int sea = f->species == FL_SP_CORAL;
+    int sea = 0; /* 3IS: the one scene, the ice, whatever the chord algorithm */
     switch (f->backdrop) {
     case FL_BD_SCENE:
         if (sea)
@@ -1121,8 +1122,45 @@ static void fl_backdrop(flora_t *f, flc_t *c)
     }
 }
 
+/* ---- 3IS: the ice wizard ------------------------------------------------------------------------------------- */
+#include "ice_sprites.h"
+
+/* a sprite (palette indices, 0xFF clear) with its top left at x0, y0 */
+static void fl_sprite(flc_t *c, const uint8_t *s, int w, int h, int x0, int y0)
+{
+    int x, y;
+    for (y = 0; y < h; y++)
+        for (x = 0; x < w; x++)
+            if (s[y * w + x] != 0xFF)
+                fl_put(c, x0 + x, y0 + y, s[y * w + x]);
+}
+
+/* the wizard stands on the near ground, bobbing a little to the sound; a chord makes the sceptre's crystal flash */
+static void fl_ice_render(flora_t *f, flc_t *c)
+{
+    int bob = ((fl_fsin((int32_t)(f->t >> 2)) * 1) >> 14) - (int)(f->level >> 14), i;
+    int mx = c->w / 2 - ICE_MASCOT_AX, my = 42 - ICE_MASCOT_AY + bob;
+    uint32_t last = 0, age;
+    fl_backdrop(f, c);
+    fl_sprite(c, ice_mascot, ICE_MASCOT_W, ICE_MASCOT_H, mx, my);
+    for (i = 0; i < 4; i++)
+        if (f->ring_t[i] > last)
+            last = f->ring_t[i];
+    age = f->t - last;
+    if (last && age < 300u) { /* a plus of light on the crystal, shrinking */
+        int sx = mx + ICE_MASCOT_AX + 22, sy = my + ICE_MASCOT_AY - 23, r = 1 + (int)((300u - age) / 80u);
+        for (i = -r; i <= r; i++) {
+            fl_put(c, sx + i, sy, FL_INK);
+            fl_put(c, sx, sy + i, FL_INK);
+        }
+    }
+}
+
 void flora_render(flora_t *f, flc_t *c)
 {
+    fl_ice_render(f, c);
+    if (f)
+        return;
     cam_t k;
     int i, b;
     /* painter's order: 48 depth buckets, far to near */

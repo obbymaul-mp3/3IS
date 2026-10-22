@@ -55,12 +55,15 @@ static const uint32_t fl_pal_rgb[FL_PAL_SIZE] = {
     0xE3F0EC, 0x82ABA2, 0x466A74, 0x2A354A,   /* SAGE */
 };
 
-/* the backdrop's dark tints, dark to light: dusk behind the plant, deep water behind the coral.
- * Palette entries 56..63 (48..55 are the UI theme's accent and secondary ramps). */
+/* 3IS: the ice scene. Palette entries 52..55 (the ice: outline, white, pale, mid; C_SEC is C_ACC now) and 56..63: the
+ * night sky, dark to the glow at the horizon (FL_L*), then the wizard's hat, its light, its shade and the crystal's
+ * cyan (FL_S*; the coral's water is gone). ice_sprites.h is drawn with these indices (tools/gen_ice_sprites.py). */
+enum { FL_I_OUT = 52, FL_I_ICE, FL_I_ICE2, FL_I_ICE3 };
 enum { FL_L0 = 56, FL_L1, FL_L2, FL_L3, FL_S0, FL_S1, FL_S2, FL_S3 };
+static const uint32_t fl_ice_rgb[4] = {0x1C2B66, 0xE6F6FF, 0xB4DEFA, 0x7FB8EA};
 static const uint32_t fl_back_rgb[8] = {
-    0x1A1026, 0x2C1838, 0x4E2440, 0x84402E,   /* dusk: violet -> plum -> wine -> the glow */
-    0x071420, 0x0B2232, 0x0F3346, 0x15495C,   /* water: deep -> the light from the surface */
+    0x0A1030, 0x172A66, 0x2A4F9A, 0x5282C6,   /* night sky -> the glow */
+    0x3A4FB8, 0x6B86EE, 0x25358A, 0x7FE3FF,   /* hat, hat light, hat shade, crystal */
 };
 
 #endif

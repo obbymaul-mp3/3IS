@@ -72,7 +72,7 @@ static void draw_topbar(const char *left, const char *mid)
  * sounding root) */
 static uint8_t cf_panel(int what)
 {
-    return (uint8_t)((flo.species == FL_SP_CORAL ? FL_S0 : FL_L0) + what);
+    return (uint8_t)(FL_L0 + what);   /* (3IS: the night sky's tints, whatever the species) */
 }
 
 /* ------------------------------------------------------------------ keys --- */
@@ -254,9 +254,27 @@ static void draw_knobs(void)
 }
 
 /* ------------------------------------------------------------------ view --- */
+/* snow: n single-pixel flakes falling slowly over the box, each on its own path, swaying a little; a few
+ * glint. (The pixels are the screen's own, not the scene's 2x ones: that is what keeps it fine.) */
+static void cf_snow(int x0, int y0, int w, int h, uint32_t t, int n, uint32_t seed)
+{
+    int i;
+    for (i = 0; i < n; i++) {
+        uint32_t k = fl_hash32((uint32_t)i * 2654435761u + seed);
+        uint32_t speed = 6u + (k >> 24) % 12u;                       /* px per second */
+        int x = (int)(k % (uint32_t)w) + ((fl_fsin((int32_t)((t >> 4) + (k >> 12))) * 2) >> 14);
+        int y = (int)(((k >> 8) % (uint32_t)h + (t >> 4) * speed / 64u) % (uint32_t)h);
+        uint8_t col = speed > 14u ? FL_I_ICE : FL_I_ICE3;
+        if ((((t >> 8) + (k >> 4)) & 15u) == 0)
+            col = FL_INK;                                            /* a glint */
+        fb_pset(x0 + x, y0 + y, col);
+    }
+}
+
 static void draw_plant(int y0)
 {
     fb_blit2x(0, y0, fl_px, FLW, FLH);
+    cf_snow(0, y0, 2 * FLW, 2 * FLH, flo.t, 36, 0x3151u);
 }
 
 /* the chord's name, big, over the plant (sharp and flat as signs) */

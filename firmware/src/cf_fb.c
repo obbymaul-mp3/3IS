@@ -234,6 +234,18 @@ static void fb_signs(const char *in, char *b, uint32_t n)
 
 /* ------------------------------------------------------------ the plant --- */
 /* the flora canvas (w x h indices) at 2x into the framebuffer at (x, y) */
+/* a sprite at 2x, 0xFF clear; only its first `cols` columns (the splash wipes the logo in) */
+static void fb_sprite2x(int x, int y, const uint8_t *src, int w, int h, int cols)
+{
+    int i, j;
+    for (j = 0; j < h; j++)
+        for (i = 0; i < w && i < cols; i++) {
+            uint8_t v = src[j * w + i];
+            if (v != 0xFF)
+                fb_rect(x + 2 * i, y + 2 * j, 2, 2, v);
+        }
+}
+
 static void fb_blit2x(int x, int y, const uint8_t *src, int w, int h)
 {
     int i, j;

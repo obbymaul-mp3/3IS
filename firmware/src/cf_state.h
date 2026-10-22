@@ -166,7 +166,7 @@ static flc_t fl_cv = {fl_px, FLW, FLH};
 /* palette entries 48..55: the interface colour's ramp, twice (C_ACC and C_SEC: the drawing still tells the two roles
  * apart, they share the one colour) */
 #define C_ACC(s) ((uint8_t)(48 + (s)))
-#define C_SEC(s) ((uint8_t)(52 + (s)))
+#define C_SEC(s) C_ACC(s)   /* (3IS: entries 52..55 are the ice) */
 static uint32_t cf_pal[64];
 
 #ifndef CF_EMU
@@ -224,7 +224,7 @@ static void cf_palette_build(void)
     for (i = 0; i < 4u; i++) {
         const cf_theme_t *th = &CF_THEMES[cs.accent % CF_NTHEMES];
         cf_pal[48 + i] = !i && th->light ? th->light : fl_pal_rgb[FL_C(th->ramp, i)];
-        cf_pal[52 + i] = cf_pal[48 + i];
+        cf_pal[52 + i] = fl_ice_rgb[i];
     }
     for (i = 0; i < 8u; i++)
         cf_pal[56 + i] = fl_back_rgb[i];

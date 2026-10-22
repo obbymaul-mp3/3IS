@@ -164,7 +164,7 @@ static void draw_piano(int x, int y, int lo, int octs, int wk, int h, uint8_t (*
  * framed. Each knob's choices in a row, the one taken marked */
 static void cv_backdrop_thumb(int x, int y, int w, int h, uint32_t bd, int on)
 {
-    int coral = flo.species == FL_SP_CORAL, i;
+    int coral = 0, i;
     uint8_t base = coral ? FL_S0 : FL_L0;
     fb_rect(x, y, w, h, FL_BG);
     if (bd != FL_BD_NONE)
