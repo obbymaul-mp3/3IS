@@ -107,7 +107,13 @@ jobs:
         run: |
           set -euo pipefail
           ulimit -n 8192 || true          # the JieLi linker opens many files (the toolchain's README)
-          ./build.sh --release "$VERSION"
+          rc=0
+          ./build.sh --release "$VERSION" 2>&1 | tee build.log || rc=${PIPESTATUS[0]}
+          if [ "$rc" != 0 ]; then   # (the log cannot be fetched by API: the error lines go out as annotations)
+            grep -iE 'error|undefined|overflow|region|exceed|POOL|fatal' build.log | head -25 | while IFS= read -r l; do echo "::error::${l:0:400}"; done
+            tail -8 build.log | while IFS= read -r l; do echo "::warning::${l:0:400}"; done
+          fi
+          exit "$rc"
           rel="build/release-$VERSION"
           for f in "coralflower-$VERSION.fwsc" "coralflower-$VERSION-app.bin" SHA256SUMS LICENSE LICENSING.md; do
             if [ ! -s "$rel/$f" ]; then
