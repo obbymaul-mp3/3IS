@@ -32,8 +32,8 @@
 #define FELUCCA_SLICER 0
 #define FELUCCA_FM4 0
 #define FELUCCA_SAMPLE 0
-#define FELUCCA_GRAIN 1            /* GRAIN: ChoralRoot's granular engine (engine 8), replacing the master-bus layer */
-#define CF_OLD_GRAIN 0            /* the master-bus layer is gone: its ring and its three GLO pages (the GRAIN engine replaces it) */
+#define FELUCCA_GRAIN 0            /* the GRAIN sound engine: off (3IS 0.7: granular is an effect on the master bus, cf_gran.c) */
+#define CF_OLD_GRAIN 1            /* the master-bus granular effect (cf_gran.c, its GLO pages and its FX tile) */
 #define GRAIN_ASYNC 1              /* its renders in slices from main.c's loop (grain_poll) */
 #define FELUCCA_DRUM 1             /* the sequencer's DRUMS (part 3: eng_drum.c keeps its own state) */
 #define DRUM_PART0 3u              /* eng_drum.c: the kit's state for part 3 alone */

@@ -113,6 +113,7 @@ jobs:
             grep -iE 'error|undefined|overflow|region|exceed|POOL|fatal' build.log | head -25 | while IFS= read -r l; do echo "::error::${l:0:400}"; done
             tail -8 build.log | while IFS= read -r l; do echo "::warning::${l:0:400}"; done
           fi
+          grep -E "^size:" build.log | tail -1 | while IFS= read -r l; do echo "::notice::${l:0:400}"; done
           if [ "$rc" != 0 ]; then exit "$rc"; fi
           rel="build/release-$VERSION"
           for f in "coralflower-$VERSION.fwsc" "coralflower-$VERSION-app.bin" SHA256SUMS LICENSE LICENSING.md; do
