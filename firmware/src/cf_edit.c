@@ -328,9 +328,9 @@ static const char *const CFE_SEC_KEY[CFE_NSEC] = {"OP1", "OP2", "OP3", "OP4", "O
 /* the VA: per section, its first deep page and how many */
 static const uint8_t CFE_VA_SEC[CFE_NSEC][2] = {{0, 2}, {2, 2}, {4, 2}, {6, 2}, {8, 2}, {10, 8}, {18, 6}, {24, 8}};
 static const char *const CFE_VA_KEY[CFE_NSEC] = {"OS1", "OS2", "OS3", "OS4", "FLT", "ENV", "LFO", "MOD"};
-/* GRAIN: SRC (the two sources), GRN (the grain cloud), FLT, ENV (1, 2), LFO (1, 2, sync), MD1..MD3 (the eight matrix slots) */
-static const uint8_t CFE_GR_SEC[CFE_NSEC][2] = {{0, 2}, {2, 2}, {4, 2}, {6, 2}, {8, 3}, {11, 3}, {14, 3}, {17, 2}};
-static const char *const CFE_GR_KEY[CFE_NSEC] = {"SRC", "GRN", "FLT", "ENV", "LFO", "MD1", "MD2", "MD3"};
+/* GRAIN: GRN (the grain cloud), SRC (the two sources), FLT, ENV (1, 2), LFO (1, 2, sync), MD1..MD3 (the eight matrix slots) */
+static const uint8_t CFE_GR_SEC[CFE_NSEC][2] = {{2, 2}, {0, 2}, {4, 2}, {6, 2}, {8, 3}, {11, 3}, {14, 3}, {17, 2}};
+static const char *const CFE_GR_KEY[CFE_NSEC] = {"GRN", "SRC", "FLT", "ENV", "LFO", "MD1", "MD2", "MD3"};   /* (GRN first: the grain cloud's SIZE DENS POS SPRD is what EDIT opens on) */
 static uint32_t cfe_first(uint32_t part, uint32_t sec) { return (cfe_grain(part) ? CFE_GR_SEC : CFE_VA_SEC)[sec % CFE_NSEC][0]; }
 
 /* the LAYER's sound has one page more, its last (the last section's, after the engine's own): Glide, the sound's
