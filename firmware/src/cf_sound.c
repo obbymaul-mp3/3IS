@@ -59,7 +59,7 @@ static const cf_named_t CF_BASS[] = {
     {ENGI_FM6, "BASS"}, {ENGI_FM6, "SOLID BASS"}, {ENGI_FM6, "SAW BASS"},
 #if FELUCCA_VA
     {ENGI_VA, "DEEP SUB"}, {ENGI_VA, "PUNCH BASS"}, {ENGI_VA, "RUBBER BASS"}, {ENGI_VA, "SYNC BASS"},
-    {ENGI_VA, "FAT BASS"}, {ENGI_VA, "ACID BASS"}, {ENGI_VA, "WOOD BASS"}, {ENGI_VA, "REESE BASS"},
+    {ENGI_VA, "FAT BASS"}, {ENGI_VA, "ACID BASS"}, {ENGI_VA, "WOOD BASS"}, {ENGI_VA, "REESE BASS"}, {ENGI_VA, "PULSE BASS"},
 #endif
 };
 static const cf_named_t CF_DROP[] = {

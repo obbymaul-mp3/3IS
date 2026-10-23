@@ -503,6 +503,42 @@ static const uint8_t VAP_REESE[] = {OSC(0, SAW, 70, 0, -14), OSC(1, SAW, 70, 0, 
     FLT(LP, 50, 16, 10), VA_DRIVE, 30, ENV1(2, 90, 120, 50), LFO(0, 34, 0, 127, 0), LFO(1, 26, 1, 127, 0),
     M_(0, VS_LFO1, VD_CUT, 8), M_(1, VS_LFO1 + 1, VD_PIT1, 2), 0xFF};
 
+/* 3IS: nine sounds of a different kind (2026-10-23, at the owner's word: "a completely unique list", the granular part
+ * having become an effect that runs over any of them). SUPER SAW: four saws spread wide, a bright open filter, a short
+ * attack. REED: a narrow square with its octave, a vibrato that fades in, a filter that opens on the attack. WIND: white
+ * noise through a high-resonance band-pass whose cutoff a random step moves, slowly, and the sound panning. STAB: a
+ * chord hit, saws and a square, the filter closing at once. HARMONICA: a pulse through a band-pass, a slow breath on
+ * the cutoff. WOW KEYS: a triangle and a sine, the pitch of the pair drifting like an old tape. DARK DRONE: low saws and
+ * a square an octave under, driven through a closed filter that a slow LFO opens a little. ZAP LEAD: a hard-synced
+ * saw whose slave sweeps down on every key. PULSE BASS (mono): a pulse whose width a slow LFO moves, the cutoff on velocity */
+static const uint8_t VAP_SUPERSAW[] = {OSC(0, SAW, 56, 0, -14), OSC(1, SAW, 56, 0, -5), OSC(2, SAW, 56, 0, 6),
+    OSC(3, SAW, 56, 0, 14), FLT(LP, 98, 6, 0), VA_FSPREAD, 100, ENV1(6, 90, 112, 58), ENV2(0, 90, 100, 58),
+    VA_DETUNE, 40, VA_VEL, 70, 0xFF};
+static const uint8_t VAP_REED[] = {OSC(0, SQR, 84, 0, 0), O_(0, SHAPE), 6, OSC(1, TRI, 40, 12, 3),
+    FLT(LP, 58, 34, 42), ENV1(14, 86, 104, 50), ENV2(10, 74, 60, 50), VA_VEL, 80,
+    LFO(0, 82, 0, 127, 70), M_(0, VS_LFO1, VD_PITCH, 3), M_(1, VS_VEL, VD_CUT, 14), 0xFF};
+static const uint8_t VAP_WIND[] = {OSC(0, SIN, 0, 0, 0), O_(3, WAVE), VN_WHITE, MODE(3, NOISE), O_(3, LEVEL), 96,
+    O_(3, KTRK), 0, FLT(BP, 66, 84, 0), VA_FSPREAD, 120, ENV1(104, 100, 112, 112), ENV2(100, 100, 100, 112),
+    LFO(0, 40, 4, 127, 0), LFO(1, 14, 0, 127, 0), M_(0, VS_LFO1, VD_CUT, 14), M_(1, VS_LFO1 + 1, VD_PAN, 40), 0xFF};
+static const uint8_t VAP_STAB[] = {OSC(0, SAW, 76, 0, -5), OSC(1, SAW, 76, 0, 5), OSC(2, SQR, 50, 12, 0),
+    FLT(LP, 34, 26, 63), ENV1(0, 66, 0, 36), ENV2(0, 62, 0, 40), VA_VEL, 100, VA_FSPREAD, 60, 0xFF};
+static const uint8_t VAP_HARMONICA[] = {OSC(0, PWM, 86, 0, 0), O_(0, SHAPE), 24, OSC(1, SQR, 34, 12, 6),
+    O_(1, SHAPE), 12, FLT(BP, 80, 30, 16), ENV1(24, 90, 100, 56), ENV2(24, 80, 80, 56), VA_VEL, 70,
+    LFO(0, 54, 0, 127, 50), LFO(1, 28, 1, 127, 0), M_(0, VS_LFO1, VD_PITCH, 2), M_(1, VS_LFO1 + 1, VD_CUT, 8), 0xFF};
+static const uint8_t VAP_WOWKEYS[] = {OSC(0, TRI, 82, 0, -3), OSC(1, SIN, 48, 12, 4), OSC(2, TRI, 26, 19, 0),
+    FLT(LP, 78, 10, 14), ENV1(2, 98, 50, 76), ENV2(0, 90, 40, 76), VA_VEL, 90,
+    LFO(0, 24, 0, 127, 0), LFO(1, 52, 4, 127, 0), M_(0, VS_LFO1, VD_PITCH, 5), M_(1, VS_LFO1 + 1, VD_PIT1 + 2, 2),
+    M_(2, VS_VEL, VD_CUT, 16), 0xFF};
+static const uint8_t VAP_DRONE[] = {OSC(0, SAW, 76, -12, -6), OSC(1, SAW, 72, 0, 7), OSC(2, SQR, 60, -24, 0),
+    FLT(LP, 30, 44, 10), VA_DRIVE, 46, VA_FSPREAD, 70, ENV1(110, 100, 122, 112), ENV2(110, 105, 90, 112),
+    LFO(0, 12, 0, 127, 0), LFO(1, 18, 1, 127, 0), M_(0, VS_LFO1, VD_CUT, 14), M_(1, VS_LFO1 + 1, VD_PIT1 + 1, 2), 0xFF};
+static const uint8_t VAP_ZAP[] = {OSC(0, SAW, 0, 0, 0), OSC(1, SAW, 96, 7, 0), VA_SYNC2, 1, FLT(LP, 86, 14, 0),
+    ENV1(0, 88, 96, 44), ENV3(0, 74, 0, 60), VA_VEL, 80, M_(0, VS_ENV1 + 2, VD_PIT1 + 1, 40),
+    M_(1, VS_VEL, VD_CUT, 10), 0xFF};
+static const uint8_t VAP_PULSEBASS[] = {OSC(0, PWM, 100, 0, 0), O_(0, SHAPE), 30, OSC(1, SIN, 70, -12, 0),
+    FLT(LP, 54, 24, 34), ENV1(0, 86, 100, 40), ENV2(0, 74, 20, 40), VA_VEL, 80,
+    LFO(0, 22, 1, 127, 0), M_(0, VS_LFO1, VD_SHP1, 40), M_(1, VS_VEL, VD_CUT, 18), 0xFF};
+
 /* {CUT, RES, FENV, DRIVE, MIX, DTN, ATK, REL}: the macros as the patch has them (cr_va_test checks) */
 static const preset_t VA_PRESETS[] = {
     {"LUSH PAD", {70, 14, 10, 0, 64, 0, 86, 98}, {86, 90, 120, 98}, 0, 0, FX(0, 60, 20, 70), PAT(5)},
@@ -542,13 +578,23 @@ static const preset_t VA_PRESETS[] = {
     {"ACID BASS", {34, 96, 48, 40, 64, 0, 0, 36}, {0, 80, 90, 36}, 0, 1, FX(0, 0, 15, 10), PAT(1)},
     {"WOOD BASS", {50, 10, 30, 0, 64, 0, 0, 50}, {0, 88, 30, 50}, 0, 1, FX(0, 0, 10, 15), PAT(2)},
     {"REESE BASS", {50, 16, 10, 30, 64, 0, 2, 50}, {2, 90, 120, 50}, 0, 1, FX(0, 0, 10, 10), PAT(2)},
+    {"SUPER SAW", {98, 6, 0, 0, 64, 40, 6, 58}, {6, 90, 112, 58}, 0, 0, FX(0, 45, 20, 55), PAT(5)},
+    {"REED", {58, 34, 42, 0, 64, 0, 14, 50}, {14, 86, 104, 50}, 0, 0, FX(0, 20, 25, 35), PAT(4)},
+    {"WIND", {66, 84, 0, 0, 64, 0, 104, 112}, {104, 100, 112, 112}, 0, 0, FX(0, 40, 30, 80), PAT(5)},
+    {"STAB", {34, 26, 63, 0, 64, 0, 0, 36}, {0, 66, 0, 36}, 0, 0, FX(0, 25, 30, 35), PAT(6)},
+    {"HARMONICA", {80, 30, 16, 0, 64, 0, 24, 56}, {24, 90, 100, 56}, 0, 0, FX(0, 25, 20, 45), PAT(4)},
+    {"WOW KEYS", {78, 10, 14, 0, 64, 0, 2, 76}, {2, 98, 50, 76}, 0, 0, FX(0, 35, 25, 55), PAT(6)},
+    {"DARK DRONE", {30, 44, 10, 46, 64, 0, 110, 112}, {110, 100, 122, 112}, 0, 0, FX(0, 30, 30, 85), PAT(5)},
+    {"ZAP LEAD", {86, 14, 0, 0, 64, 0, 0, 44}, {0, 88, 96, 44}, 0, 0, FX(0, 15, 35, 35), PAT(4)},
+    {"PULSE BASS", {54, 24, 34, 0, 64, 0, 0, 40}, {0, 86, 100, 40}, 0, 1, FX(0, 0, 10, 10), PAT(2)},
 };
 static const uint8_t *const VA_PRESET_EDITS[] = {VAP_LUSH, VAP_WARM, VAP_GLASS, VAP_SLOWSTR, VAP_ENSEMBLE, VAP_BRASS,
     VAP_SOFTBRASS, VAP_POLYKEYS, VAP_PWMKEYS, VAP_CLAV, VAP_SOFTLEAD, VAP_HOLLOW, VAP_BELLS, VAP_SWEEP, VAP_AAH,
     VAP_ORGAN, VAP_SUB, VAP_PUNCH, VAP_RUBBER, VAP_SYNCBASS, VAP_MORPHPAD, VAP_VINYLKEYS, VAP_WIDESTR, VAP_CLOUD,
     VAP_SHIMMER, VAP_BREATH, VAP_TAPESTR, VAP_AURORA, VAP_GLOWPLUCK, VAP_DREAMBELL, VAP_HAZE, VAP_STARKEYS, VAP_PWMPAD,
-    VAP_FATBASS, VAP_ACID, VAP_WOODBASS, VAP_REESE};
-_Static_assert(NELEM(VA_PRESETS) == NELEM(VA_PRESET_EDITS) && NELEM(VA_PRESETS) == 37, "a patch per VA preset");
+    VAP_FATBASS, VAP_ACID, VAP_WOODBASS, VAP_REESE, VAP_SUPERSAW, VAP_REED, VAP_WIND, VAP_STAB,
+    VAP_HARMONICA, VAP_WOWKEYS, VAP_DRONE, VAP_ZAP, VAP_PULSEBASS};
+_Static_assert(NELEM(VA_PRESETS) == NELEM(VA_PRESET_EDITS) && NELEM(VA_PRESETS) == 46, "a patch per VA preset");
 #define VA_NPRESETS ((uint32_t)NELEM(VA_PRESETS))
 #undef O_
 #undef E_
