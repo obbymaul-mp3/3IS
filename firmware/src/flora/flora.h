@@ -49,8 +49,8 @@ typedef struct {
     int8_t bass;     /* MIDI note of the bass part, or -1 (kept for the screens; the organism has no roots) */
 } fl_chord_t;
 
-#define FL_MAX_SEG 192
-#define FL_MAX_PART 48
+#define FL_MAX_SEG 16  /* (the plant is gone: the wizard needs none; was 192) */
+#define FL_MAX_PART 8   /* (was 48) */
 
 typedef struct {
     uint16_t key;      /* stable identity: species << 15 | slot << 11 | kind << 7 | index */
