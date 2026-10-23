@@ -153,24 +153,185 @@ static void draw_fx_graph(uint32_t e, int x0, int yb, int w, int h)
     }
 }
 
+/* GRN's picture: a wizard's wand. The grains are its sparkles. The shaft is the ring (the handle end the oldest sound,
+ * the tip the newest): the lit stretch is where the grains read (POSITION) and how long they are (SIZE). Every grain the
+ * audio side starts flies off the tip as a spark: to the side it is panned to, up at the speed of its pitch (a reverse
+ * grain falls back in), a layer voice in the hat's other colour as a bigger star. While grains play the wand trembles,
+ * the tip glows with their number and flashes at each new one; on the tempo (SYNC) every step also throws a ring; frozen
+ * the tip is a still crystal that twinkles; with MIX 0 the wand is dim and quiet. The colours are the hat's (palette
+ * 60..63: they follow the chord's root, like the wizard's) and the ice */
+static void spell_disc(int cx, int cy, int rx, int ry, int col);
+static void spell_spark(int x, int y, int r);
+static void wand_glow(int cx, int cy, int r, uint8_t c)       /* a dithered disc: a glow that lets the picture through */
+{
+    int x, y;
+    for (y = -r; y <= r; y++)
+        for (x = -r; x <= r; x++)
+            if (x * x + y * y <= r * r && ((x + y) & 1) == 0)
+                fb_pset(cx + x, cy + y, c);
+}
+static void wand_ring(int cx, int cy, int r, uint8_t c)
+{
+    int x, y, r2 = r * r, r3 = (r - 1) * (r - 1);
+    for (y = -r; y <= r; y++)
+        for (x = -r; x <= r; x++) {
+            int d = x * x + y * y;
+            if (d <= r2 && d >= r3 && ((x + y) & 1) == 0)
+                fb_pset(cx + x, cy + y, c);
+        }
+}
 static void draw_grain_graph(int x0, int yb, int w, int h)
 {
-    int xl = x0, xr = x0 + w, ww = xr - xl, y = yb - h / 2 - 5, i, n;
-    int on = cgr.mix != 0;
-    int gw = 4 + (int)cgr.size * (ww / 2) / 100;
-    int gx = xr - gw - (int)cgr.pos * (ww - gw) / 100;
-    uint32_t seed = (cu.now >> 7) * 40503u;
-    fb_rect(xl, y, ww, 10, FL_BG3);                         /* the ring: the last sound, the newest on the right */
-    fb_rect(gx, y, gw, 10, on ? C_ACC(1) : FL_INK3);        /* where the grains read, and how long they are */
-    if (cgr.freeze)
-        fb_rect(xr - 2, y - 3, 2, 16, C_ACC(0));            /* the head, stopped */
-    n = 3 + (int)cgr.dens * 14 / 100;
-    for (i = 0; i < n; i++) {
-        uint32_t hh = (uint32_t)(i + 1) * 2654435761u + seed;
-        int jx = (((int)((hh >> 8) & 255u) - 128) * (int)cgr.rnd * ww) / (100 * 256 * 2);
-        int px = gx + gw / 2 + jx, py = y - 5 - (int)((hh >> 20) & 15u);
-        px = px < xl ? xl : px > xr - 2 ? xr - 2 : px;
-        fb_rect(px, py, 2, 2, on ? C_ACC(0) : FL_INK3);
+    static uint32_t last_hits, t_hit;
+    const int top = yb - 30, bot = yb + 18, tx = x0 + w * 60 / 100, ty = top + 22, hx = x0 + 6, hy = bot - 5;
+    int on = cgr.mix != 0, frozen = cgr.freeze != 0, na = 0, i, k, pxv[17], pyv[17];
+    uint32_t now = cu.now, since, hits = cg.hits;
+    int amp, glow, u0, ul;
+    (void)h;
+    if (hits != last_hits) {                                  /* a grain started since the last frame */
+        last_hits = hits;
+        t_hit = now;
+    }
+    since = now - t_hit;
+    for (k = 0; k < CG_NG; k++)
+        na += cg.g[k].on;
+    fb_rbox(x0 - 4, top - 2, w + 8, bot - top + 4, 3, cf_panel(1));      /* a dark pane behind: the wand reads on it */
+    fb_clip(x0 - 4, top - 2, x0 + w + 4, bot + 2);
+    /* the wobble: a standing wave along the shaft, stronger the more grains play, still when frozen or off */
+    amp = (!on || frozen) ? 0 : (na + 1) / 2 + (since < 120u ? 1 : 0);
+    amp = amp > 3 ? 3 : amp;
+    for (i = 0; i <= 16; i++) {
+        int sx = hx + (tx - hx) * i / 16, sy = hy + (ty - hy) * i / 16;
+        int wv = amp ? (osc_sine(now * 9000000u + (uint32_t)i * 120000000u) * amp * i) / (32768 * 16) : 0;
+        pxv[i] = sx;
+        pyv[i] = sy + wv;
+    }
+    /* the tip's glow: by MIX and by the grains playing, a flash at each new grain */
+    glow = on ? 3 + (int)cgr.mix / 30 + na + (since < 160u ? (int)(160u - since) / 40 : 0) : 2;
+    if (frozen)
+        glow += 3;
+    wand_glow(tx, pyv[16], glow + 4, FL_S2);
+    wand_glow(tx, pyv[16], glow + 1, on ? (cgr.layer ? FL_I_ICE3 : FL_S3) : FL_S2);
+    if (on && cgr.sync) {                                     /* on the tempo: a ring thrown at every step */
+        uint32_t tk = since < 400u ? since : 400u;
+        if (since < 400u)
+            wand_ring(tx, pyv[16], 8 + (int)tk / 12, FL_S3);
+    }
+    /* the shaft: three lines (light, body, shade); the grain window lit, the handle's grip dark */
+    u0 = (int)cgr.pos * 11 / 100;                              /* segments from the tip: POSITION */
+    ul = 1 + (int)cgr.size * 5 / 100;                          /* .. and SIZE */
+    for (i = 0; i < 16; i++) {
+        int seg = 15 - i;                                      /* (i from the handle; seg from the tip) */
+        int lit = on && seg >= u0 && seg < u0 + ul;
+        int grip = i < 3;
+        uint8_t c1 = lit ? FL_I_ICE : grip ? FL_BG3 : FL_S1, c0 = lit ? FL_S3 : grip ? FL_INK3 : FL_S0,
+                c2 = lit ? FL_S3 : grip ? FL_I_OUT : FL_S2;
+        if (!on) {
+            c1 = grip ? FL_BG3 : FL_S0;
+            c0 = grip ? FL_INK3 : FL_S2;
+            c2 = FL_I_OUT;
+        }
+        fb_line(pxv[i], pyv[i] - 1, pxv[i + 1], pyv[i + 1] - 1, c1);
+        fb_line(pxv[i], pyv[i], pxv[i + 1], pyv[i + 1], c0);
+        fb_line(pxv[i], pyv[i] + 1, pxv[i + 1], pyv[i + 1] + 1, c2);
+    }
+    fb_line(pxv[3], pyv[3] - 2, pxv[3], pyv[3] + 2, FL_I_OUT);     /* the ferrule between grip and shaft */
+    /* the tip: a four-point star, or while frozen a crystal */
+    if (frozen) {
+        int cy = pyv[16], tw = (now / 180u) & 1u;
+        for (k = -5; k <= 5; k++) {
+            int wd = 5 - (k < 0 ? -k : k);
+            fb_hline(tx - wd / 2 - 1, cy + k, wd + 2, FL_S3);
+            fb_hline(tx - wd / 3, cy + k, wd * 2 / 3 + 1, FL_I_ICE);
+        }
+        fb_vline(tx, cy - 5, 11, FL_INK);
+        if (tw)
+            spell_spark(tx + 7, cy - 6, 2);
+        else
+            spell_spark(tx - 8, cy + 5, 2);
+    } else {
+        spell_spark(tx, pyv[16], on ? 3 + (since < 100u) : 2);
+        fb_pset(tx, pyv[16], FL_INK);
+    }
+    /* the sparks: every grain started throws one (a grain lasts 10 .. 250 ms, a spark half a second: it is the
+     * picture's, not the sound's; the audio side keeps the last eight starts in cg.ev). A reverse grain's falls */
+    {
+        static struct { uint32_t t; int8_t pan; uint8_t rr, kind, rev; } sp[24];
+        static uint32_t seen;
+        static uint8_t nxt;
+        uint32_t nn = hits - seen;
+        if (nn > 8u)
+            nn = 8u;
+        for (k = 0; k < (int)nn; k++) {
+            uint32_t e = (hits - nn + (uint32_t)k) & 7u;
+            sp[nxt].t = now;
+            sp[nxt].pan = cg.ev[e].pan;
+            sp[nxt].rr = cg.ev[e].rr;
+            sp[nxt].kind = cg.ev[e].kind;
+            sp[nxt].rev = cg.ev[e].rev;
+            nxt = (uint8_t)((nxt + 1u) % 24u);
+        }
+        seen = hits;
+        for (k = 0; k < 24; k++) {
+            uint32_t life = cgr.sync ? 900u : 650u, age = now - sp[k].t;
+            int f, dx, dy, rise, sx, sy;
+            uint8_t c;
+            if (!sp[k].t || age >= life) {
+                continue;
+            }
+            f = (int)(age * 256u / life);
+            rise = 8 + (int)sp[k].rr / 8;                      /* pitch 1.0 -> 24 px, 0.5 -> 16, 4.0 -> 40 px */
+            if (rise > 34)
+                rise = 34;
+            dx = sp[k].pan * f * 56 / (128 * 256) + f * 22 / 256;
+            dy = sp[k].rev ? f * 22 / 256 + (f * f) / 4096 : -(f * rise) / 256 + (f * f) / 6000;
+            sx = tx + dx;
+            sy = pyv[16] + dy;
+            c = f < 70 ? FL_INK : f < 150 ? FL_I_ICE : f < 210 ? FL_I_ICE2 : FL_I_ICE3;
+            if (sp[k].kind) {                                  /* a layer voice: a bigger star in the hat's other colour */
+                int r = f < 120 ? 3 : f < 200 ? 2 : 1;
+                for (i = 1; i <= r; i++) {
+                    uint8_t cc = (uint8_t)(i == 1 ? FL_S1 : FL_S3);
+                    fb_pset(sx - i, sy, cc);
+                    fb_pset(sx + i, sy, cc);
+                    fb_pset(sx, sy - i, cc);
+                    fb_pset(sx, sy + i, cc);
+                }
+                fb_pset(sx, sy, FL_INK);
+            } else {
+                int r = f < 110 ? 2 : 1;
+                for (i = 1; i <= r; i++) {
+                    fb_pset(sx - i, sy, c);
+                    fb_pset(sx + i, sy, c);
+                    fb_pset(sx, sy - i, c);
+                    fb_pset(sx, sy + i, c);
+                }
+                fb_pset(sx, sy, c);
+            }
+        }
+    }
+    /* frozen: the held moment twinkles round the crystal; off: a faint star now and then */
+    if (frozen) {
+        for (k = 0; k < 5; k++) {
+            uint32_t hh = (uint32_t)(k + 1) * 2654435761u + (now >> 9) * 40503u;
+            int ax = tx - 30 + (int)((hh >> 8) & 63u), ay = pyv[16] - 22 + (int)((hh >> 18) & 31u);
+            fb_pset(ax, ay, FL_I_ICE);
+        }
+    } else if (!on && ((now >> 8) & 7u) == 0)
+        fb_pset(tx + 5, pyv[16] - 6, FL_I_ICE2);
+    fb_unclip();
+    /* what the rhythm and the layer are, small, at the handle */
+    if (on && (cgr.sync || cgr.layer)) {
+        char t[16];
+        t[0] = 0;
+        if (cgr.sync)
+            str_cpy(t, CG_SYNC_NAME[cgr.sync % 8u], sizeof t);
+        if (cgr.layer) {
+            if (t[0])
+                str_cpy(t + str_len(t), "  ", 3);
+            str_cpy(t + str_len(t), CG_LAYER_NAME[cgr.layer % 5u], (uint32_t)(sizeof t - str_len(t)));
+        }
+        fb_text(&CF_FONT_UI, x0 + 2, top + 2, t, FL_INK2, 1);
     }
 }
 

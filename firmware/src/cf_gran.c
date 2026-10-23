@@ -40,9 +40,16 @@ typedef struct {
     uint8_t spread;                      /* stereo width of the grains */
     uint8_t dir;                         /* 0 forward, 1 reverse, 2 either */
     uint8_t freeze;                      /* 1: the ring stops recording */
+    uint8_t sync;                        /* 0 free (DENS) .. 7: grains on the tempo (CG_SYNC_48: 1/4 .. 1/32 triplet) */
+    uint8_t layer;                       /* 0 off, 1 a fifth up, 2 an octave up, 3 octave + fifth, 4 an octave down */
+    uint8_t llev;                        /* 0..100: the layer's level against the main grains */
 } cf_gr_t;
 
-static const cf_gr_t CG_DEFAULT = {0, 25, 45, 70, 24, 20, 60, 0, 0};
+static const cf_gr_t CG_DEFAULT = {0, 25, 45, 70, 24, 20, 60, 0, 0, 0, 0, 60};
+/* SYNC: a division in 48ths of a quarter note (1/4, 1/8, 1/8T, 1/16, 1/16T, 1/32, 1/32T) */
+static const uint8_t CG_SYNC_48[8] = {0, 48, 24, 16, 12, 8, 6, 4};
+/* LAYER: the semitones above the main grain of each extra voice (0 = none), two at most */
+static const int8_t CG_LAYER_ST[5][2] = {{0, 0}, {7, 0}, {12, 0}, {12, 19}, {-12, 0}};
 
 /* 2^((s - 24) / 12) in Q16, s 0..48 */
 static const uint32_t CG_RATIO[49] = {
@@ -102,7 +109,10 @@ static struct {
         uint32_t age, len;               /* output samples played, the grain's length */
         int32_t gl, gr;                  /* left and right gain (Q15), the level and the window folded in at start */
         uint8_t on;
+        uint8_t kind;                    /* 0 the main grain, 1 a layer voice (the UI draws them apart) */
     } g[CG_NG];
+    uint32_t hits;                       /* grains started so far (the UI's wand flashes on a change) */
+    struct { int8_t pan; uint8_t rr, kind, rev; } ev[8];   /* the last eight starts, by hits & 7 (the UI turns them into sparks) */
     int32_t wl[CTL], wr[CTL];            /* the grains' sum for a block */
 } cg __attribute__((section(".pool")));
 
@@ -142,29 +152,17 @@ static void cf_gran_apply(const cf_gr_t *s)
     fm1_irq_on();
 }
 
-/* a new grain into a free slot (none free: none starts) */
-static void cg_spawn(const cf_gr_t *s)
+/* one voice into a free slot (none free: none starts). rv: random bits; ratio: Q16 pitch; iv: the grain interval, for
+ * the level (1 / sqrt(overlap)); gain Q8 (256 = 1) */
+static void cg_voice(const cf_gr_t *s, uint32_t ratio, uint32_t len, uint32_t iv, uint32_t rv, uint32_t gain, int rev,
+                     uint32_t kind)
 {
-    uint32_t i, len, ratio, span, dmin, dmax, d, rv, lmax;
+    uint32_t i, span, dmin, dmax, d, lmax;
     int32_t pan, amp, ov, nrm;
-    int rev;
     for (i = 0; i < CG_NG && cg.g[i].on; i++)
         ;
     if (i == CG_NG)
         return;
-    rv = cg_rand();
-    {
-        uint32_t semi = s->pitch > 48u ? 48u : s->pitch, r = s->rnd;
-        ratio = CG_RATIO[semi];
-        if (r > 40u && ((rv >> 8) & 127u) < (r - 40u) * 128u / 100u) {      /* RAND: an octave up or down */
-            if ((rv >> 16) & 1u)
-                ratio = ratio > (1u << 18) ? ratio : ratio * 2u;
-            else
-                ratio = ratio < 4096u ? ratio : ratio / 2u;
-        }
-    }
-    rev = s->dir == 1u || (s->dir == 2u && ((rv >> 20) & 1u));
-    len = CG_LEN[s->size > 100u ? 100u : s->size];
     lmax = ((CG_N - 2u * CG_MARGIN) * 2u << 16) / (ratio + 65536u);   /* L (ratio + 1) / 2 fits (32 bits: 2.1e9 at most) */
     if (len > lmax)
         len = lmax;
@@ -192,16 +190,60 @@ static void cg_spawn(const cf_gr_t *s)
     cg.g[i].len = len;
     cg.g[i].ph = 0;
     cg.g[i].winc = (1u << 24) / len;
-    /* level: 1 / sqrt(overlap), overlap = grains sounding at once = len / interval */
-    ov = (int32_t)((len << 8) / CG_INT[s->dens > 100u ? 100u : s->dens]);
+    cg.g[i].kind = (uint8_t)kind;
+    ov = (int32_t)((len << 8) / (iv ? iv : 1u));
     ov = ov < 256 ? 256 : ov;
     nrm = (int32_t)((32768u * 256u) / cg_isqrt((uint32_t)ov << 8));
-    amp = nrm;
+    amp = (int32_t)(((int64_t)nrm * (int32_t)gain) >> 8);
     pan = (int32_t)(rv >> 24) - 128;                           /* -128 .. 127 */
     pan = pan * (int32_t)s->spread / 100;                      /* .. -128 .. 127 at SPREAD 100 */
     cg.g[i].gl = amp * (128 - pan) * 3 / 512;                  /* a linear pan: 0.75 each side at the middle, 1.5 on */
     cg.g[i].gr = amp * (128 + pan) * 3 / 512;                  /* the one side at the edge */
     cg.g[i].on = 1;
+    {
+        uint32_t e = cg.hits & 7u, rr = ratio >> 11;
+        cg.ev[e].pan = (int8_t)pan;
+        cg.ev[e].rr = (uint8_t)(rr > 255u ? 255u : rr);
+        cg.ev[e].kind = (uint8_t)kind;
+        cg.ev[e].rev = (uint8_t)rev;
+    }
+    cg.hits++;
+}
+
+/* a new grain, and its layer voices. iv: the interval it was started on (samples, free or the tempo's) */
+static void cg_spawn(const cf_gr_t *s, uint32_t iv)
+{
+    uint32_t len, ratio, rv, ll, lay, k;
+    int rev;
+    rv = cg_rand();
+    {
+        uint32_t semi = s->pitch > 48u ? 48u : s->pitch, r = s->rnd;
+        ratio = CG_RATIO[semi];
+        if (!s->sync && r > 40u && ((rv >> 8) & 127u) < (r - 40u) * 128u / 100u) {   /* RAND: an octave up or down */
+            if ((rv >> 16) & 1u)
+                ratio = ratio > (1u << 18) ? ratio : ratio * 2u;
+            else
+                ratio = ratio < 4096u ? ratio : ratio / 2u;
+        }
+    }
+    rev = s->dir == 1u || (s->dir == 2u && ((rv >> 20) & 1u));
+    if (s->sync)                                               /* on the tempo a grain is the step, SIZE 25 .. 200 % of it */
+        len = (uint32_t)(((uint64_t)iv * (25u + (uint32_t)(s->size > 100u ? 100u : s->size) * 7u / 4u)) / 100u);
+    else
+        len = CG_LEN[s->size > 100u ? 100u : s->size];
+    lay = s->layer > 4u ? 0u : s->layer;
+    ll = (uint32_t)(s->llev > 100u ? 100u : s->llev) * 256u / 100u;
+    cg_voice(s, ratio, len, iv, rv, lay ? 256u - ll / 4u : 256u, rev, 0u);       /* (the main grain eases back a little as the layer comes up) */
+    for (k = 0; lay && k < 2u; k++) {
+        int st = CG_LAYER_ST[lay][k];
+        uint32_t r2;
+        if (!st)
+            continue;
+        r2 = (uint32_t)(((uint64_t)ratio * CG_RATIO[(uint32_t)(24 + st)]) >> 16);   /* (-12 .. +19 st: index 12 .. 43) */
+        if (r2 > (1u << 19))
+            r2 = 1u << 19;
+        cg_voice(s, r2, len, iv, cg_rand(), ll * (k ? 3u : 4u) / 5u, rev, 1u);
+    }
 }
 
 /* the master bus, in place: the grains mixed in by MIX; the ring recorded from it */
@@ -234,15 +276,31 @@ static void cf_gran_run(int32_t *l, int32_t *r, uint32_t n)
     cg.wg += (tgt - cg.wg) / 4 + (tgt > cg.wg ? 1 : tgt < cg.wg ? -1 : 0);   /* (to the target within a few blocks) */
     if (cg.wg < 0)
         cg.wg = 0;
-    /* new grains: one every interval (at most one a block: the interval is >= 368 samples, a block 32) */
-    cg.cd -= (int32_t)n;
-    if (tgt && cg.cd <= 0) {
-        int32_t iv = (int32_t)CG_INT[s->dens > 100u ? 100u : s->dens];
-        int32_t j = ((int32_t)(cg_rand() >> 16) & 0xFF) - 128;      /* the interval +-10 % at RAND 100 */
-        cg_spawn(s);
-        cg.cd += iv + (int32_t)(((int64_t)iv * j * s->rnd) >> 17);
-        if (cg.cd < 1)
-            cg.cd = 1;
+    /* new grains: one every interval, or on the tempo's step (at most one a block: the interval is >= 368 samples, a
+     * block 32). SYNC: the step is the tempo's division, worked out every block, so a tempo change moves the next hit and
+     * nothing else. RANDOM may drop a hit: the step then stays silent */
+    if (tgt && s->sync) {
+        uint32_t bpm = xf_bpm < 20u ? 20u : xf_bpm > 300u ? 300u : xf_bpm, st48 = CG_SYNC_48[s->sync > 7u ? 7u : s->sync];
+        uint32_t iv = (2646000u / bpm) * st48 / 48u;              /* (samples a step: a quarter is 2646000 / bpm) */
+        if (cg.cd <= 0) {
+            uint32_t rv = cg_rand();
+            if (!s->rnd || ((rv >> 9) & 127u) >= (uint32_t)s->rnd * 128u / 200u)     /* RANDOM: up to half the steps drop out */
+                cg_spawn(s, iv);
+            cg.cd += (int32_t)iv;
+            if (cg.cd < 1)
+                cg.cd = 1;
+        }
+        cg.cd -= (int32_t)n;                                   /* (decrements after the test: the first hit is at once) */
+    } else if (tgt) {
+        cg.cd -= (int32_t)n;
+        if (cg.cd <= 0) {
+            int32_t iv = (int32_t)CG_INT[s->dens > 100u ? 100u : s->dens];
+            int32_t j = ((int32_t)(cg_rand() >> 16) & 0xFF) - 128;      /* the interval +-10 % at RAND 100 */
+            cg_spawn(s, (uint32_t)iv);
+            cg.cd += iv + (int32_t)(((int64_t)iv * j * s->rnd) >> 17);
+            if (cg.cd < 1)
+                cg.cd = 1;
+        }
     }
     for (i = 0; i < n; i++)
         cg.wl[i] = cg.wr[i] = 0;
