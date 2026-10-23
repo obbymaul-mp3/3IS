@@ -201,12 +201,14 @@ static int spell_diff(const char *a, const char *b)
 
 /* the chord's name as a spell: an ice cloud left of the wizard puffs up round the whole name (root big, the quality
  * after it) whenever the chord changes, with a burst of sparkles, and twinkles gently while it stays */
-static void spell_disc(int cx, int cy, int r, int col)
+static void spell_disc(int cx, int cy, int rx, int ry, int col)
 {
     int x, y;
-    for (y = -r; y <= r; y++)
-        for (x = -r; x <= r; x++)
-            if (x * x + y * y <= r * r)
+    if (rx < 1 || ry < 1)
+        return;
+    for (y = -ry; y <= ry; y++)
+        for (x = -rx; x <= rx; x++)
+            if (x * x * ry * ry + y * y * rx * rx <= rx * rx * ry * ry)
                 fb_pset(cx + x, cy + y, (uint8_t)col);
 }
 static void spell_spark(int x, int y, int r)
@@ -229,7 +231,7 @@ static void draw_spell(void)
     static uint32_t t0;
     char rb[8], sb[16], full[16];
     int n = cu_name_single ? (int)str_len(cu_name) : 1 + (cu_name[0] && (cu_name[1] == '#' || cu_name[1] == 'b'));
-    int rs = 3, ss = 2, rw, sw, w, hw, hh, cx, cy, i, grow;
+    int rs = 4, ss = 2, rw, sw, w, hw, hh, cx, cy, i, grow, th, ry0, sy0;
     uint32_t age;
     str_cpy(full, cu_name, sizeof full);
     if (spell_diff(full, last)) {
@@ -241,54 +243,57 @@ static void draw_spell(void)
     fb_signs(rb, rb, sizeof rb);
     fb_signs(cu_name + n, sb, sizeof sb);
     rw = fb_text_w(&CF_FONT_UI, rb, rs);
-    sw = sb[0] ? fb_text_w(&CF_FONT_UI, sb, ss) + 2 : 0;
-    if (rw + sw > 56 && ss == 2) {                /* a long name: the quality smaller, then the root */
-        ss = 1;
-        sw = sb[0] ? fb_text_w(&CF_FONT_UI, sb, ss) + 2 : 0;
-    }
-    if (rw + sw > 56) {
-        rs = 2;
+    if (rw > 46) {                                /* a root like "Db" or a note list: a size down */
+        rs = 3;
         rw = fb_text_w(&CF_FONT_UI, rb, rs);
-        sw = sb[0] ? fb_text_w(&CF_FONT_UI, sb, ss) + 2 : 0;
     }
-    w = rw + sw;
-    hw = w / 2 + 9;
-    hh = rs * 6 + 4;
-    cx = 4 + hw;
-    cy = Y_VIEW + 46 - (age < 250u ? (int)((250u - age) / 25u) : 0);
+    sw = sb[0] ? fb_text_w(&CF_FONT_UI, sb, ss) : 0;
+    if (sw > 56) {                                /* a long quality: smaller, still on its own line */
+        ss = 1;
+        sw = fb_text_w(&CF_FONT_UI, sb, ss);
+    }
+    w = rw > sw ? rw : sw;
+    th = 8 * rs + (sb[0] ? 4 + 8 * ss : 0);       /* the caps' height of the block */
+    hw = w / 2 + 12;
+    if (hw > 38)
+        hw = 38;
+    hh = th / 2 + 9;
+    cx = 3 + hw;
+    cy = Y_VIEW + 62 - (age < 250u ? (int)((250u - age) / 20u) : 0);
     grow = age < 260u ? (int)(age * 256u / 260u) : 256;     /* the cloud puffs up in a quarter second */
     {
         int pw = hw * grow / 256, ph = hh * grow / 256;
-        int r1 = ph * 7 / 10, r2 = ph * 6 / 10;
-        spell_disc(cx, cy + 3, ph, 55);                      /* the shade underneath */
-        spell_disc(cx - pw * 6 / 10, cy + 2, r1, 54);
-        spell_disc(cx + pw * 6 / 10, cy + 2, r1, 54);
-        spell_disc(cx, cy, ph, 54);
-        spell_disc(cx - pw / 3, cy - ph / 2, r2, 53);        /* the puffs on top */
-        spell_disc(cx + pw / 4, cy - ph * 6 / 10, r2 - 1, 53);
-        spell_disc(cx, cy, ph - 2, 53);
+        spell_disc(cx, cy + 3, pw, ph, 55);                  /* the shade underneath */
+        spell_disc(cx - pw * 6 / 10, cy + 3, pw * 5 / 10, ph * 7 / 10, 54);
+        spell_disc(cx + pw * 6 / 10, cy + 3, pw * 5 / 10, ph * 7 / 10, 54);
+        spell_disc(cx - pw / 3, cy - ph * 5 / 10, pw * 5 / 10, ph * 6 / 10, 54);
+        spell_disc(cx + pw / 4, cy - ph * 6 / 10, pw * 45 / 100, ph * 55 / 100, 54);
+        spell_disc(cx, cy, pw, ph, 54);
+        spell_disc(cx, cy, pw * 9 / 10, ph * 9 / 10, 53);
+        spell_disc(cx - pw / 3, cy - ph * 5 / 10, pw * 4 / 10, ph * 5 / 10, 53);
     }
+    ry0 = cy - th / 2;                                       /* the caps' top of the root */
+    sy0 = ry0 + 8 * rs + 4;
     if (age > 120u) {
-        int x = cx - w / 2, y = cy - rs * 3;
-        fb_text(&CF_FONT_UI, x, y, rb, 52, rs);
+        fb_text_c(&CF_FONT_UI, cx, ry0 - 3 * rs, rb, 52, rs);
         if (sb[0])
-            fb_text(&CF_FONT_UI, x + rw + 2, y + rs * 3 - 1, sb, 52, ss);
+            fb_text_c(&CF_FONT_UI, cx, sy0 - 3 * ss, sb, 52, ss);
     }
-    for (i = 0; i < 9; i++) {                                /* twinkles round the cloud, forever */
-        uint32_t ph = (cu.now / 220u + (uint32_t)i * 5u) % 9u;
+    for (i = 0; i < 11; i++) {                               /* twinkles round the cloud, forever */
+        uint32_t ph = (cu.now / 200u + (uint32_t)i * 5u) % 9u;
         if (ph < 3u) {
-            uint32_t h = (uint32_t)i * 2654435761u + (cu.now / 1980u) * 40503u;
-            int sx = cx + (int)(h % (uint32_t)(2 * hw + 16)) - hw - 8, sy = cy + (int)((h >> 8) % (uint32_t)(2 * hh + 14)) - hh - 7;
+            uint32_t h = (uint32_t)i * 2654435761u + (cu.now / 1800u) * 40503u;
+            int sx = cx + (int)(h % (uint32_t)(2 * hw + 20)) - hw - 10, sy = cy + (int)((h >> 8) % (uint32_t)(2 * hh + 16)) - hh - 8;
             spell_spark(sx, sy, ph == 1u ? 2 : 1);
         }
     }
-    if (age < 700u) {                                        /* the burst on a new chord */
-        for (i = 0; i < 12; i++) {
+    if (age < 800u) {                                        /* the burst on a new chord */
+        for (i = 0; i < 16; i++) {
             uint32_t h = (uint32_t)i * 40503u + 977u;
             int ang = (int)(h % 1024u);
-            int d = (int)(age / 14u) + 6 + (int)(h % 11u);
-            int sx = cx + ((fl_fsin(ang) * d * 2) >> 14), sy = cy + ((fl_fsin(ang + 256) * d) >> 14);
-            spell_spark(sx, sy, age < 350u ? 2 : 1);
+            int d = (int)(age / 12u) + 6 + (int)(h % 13u);
+            int sx = cx + ((fl_fsin(ang) * d * hw / 20) >> 14), sy = cy + ((fl_fsin(ang + 256) * d * hh / 20) >> 14);
+            spell_spark(sx, sy, age < 400u ? 2 : 1);
         }
     }
 }
@@ -311,6 +316,8 @@ static void draw_home(void)
         str_cpy(key, "CHROMATIC", sizeof key);
     }
     fb_text_halo(&CF_FONT_UI, 234 - fb_text_w(&CF_FONT_UI, key, 1), Y_VIEW + 4, key, FL_INK2, FL_BG, 1);
+    if (cf_sn.out.hold)
+        fb_text_halo(&CF_FONT_UI, 234 - fb_text_w(&CF_FONT_UI, "HOLD", 1), Y_VIEW + 32, "HOLD", C_ACC(0), FL_BG, 1);
     if (cs.chord.octave) {
         char b[8];
         b[0] = 'O';
@@ -440,6 +447,10 @@ static void draw_edit(void)
 #if FELUCCA_VA
         if (cfe_va(part))
             draw_view(view_va);
+#endif
+#if FELUCCA_GRAIN
+        if (cfe_grain(part))
+            draw_view(view_grain_wave);
 #endif
     }
     if (cfe_fm6(part))
@@ -724,10 +735,18 @@ static void cf_ui_draw(void)
         cf_present();
         return;
     }
+    if (cu.scr != SCR_HOME)
     fb_rect(0, Y_VIEW + H_VIEW, FB_W, Y_KEYS - Y_VIEW - H_VIEW, FL_BG);   /* the gap over the keys: the intro's plant
                                                   * (cf_splash.c, 4 px lower) left its stem's foot there, and no
                                                   * screen draws it (the owner saw it over the m6 key, 2026-10-19) */
-    draw_keys();
+    if (cu.scr == SCR_HOME) {                    /* no keys drawn: the snow runs on under the wizard */
+        int y0 = Y_VIEW + H_VIEW;
+        fb_rect(0, y0, FB_W, Y_KNOBS - y0, fl_px[(FLH - 1) * FLW + 10]);
+        fb_rect(0, y0, FB_W, 1, 55);
+        cf_snow(0, y0, FB_W, Y_KNOBS - y0, flo.t, 10, 0x77u);
+    } else {
+        draw_keys();
+    }
     draw_knobs();
     cf_present();
 }
