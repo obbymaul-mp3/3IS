@@ -25,6 +25,9 @@ static const uint8_t CF_ENGINES[] = {ENGI_FM6,
 #if FELUCCA_QUAD
                                      ENGI_QUAD,
 #endif
+#if FELUCCA_GRAIN
+                                     ENGI_GRAIN,
+#endif
 };
 #define CF_NENG ((uint32_t)sizeof CF_ENGINES)
 
@@ -39,6 +42,10 @@ static const char *cf_engine_name(uint32_t e)
 #if FELUCCA_QUAD
     if (e == ENGI_QUAD)
         return "FM4";
+#endif
+#if FELUCCA_GRAIN
+    if (e == ENGI_GRAIN)
+        return "GRN";
 #endif
     return ENGINES[e % NENGINES]->name;
 }

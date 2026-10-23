@@ -399,9 +399,9 @@ static void draw_generic(void)
         static void (*const V[8])(int) = {view_display, view_midi, view_midi, view_play, view_reset, view_grain,
                                           view_grain, view_grain};   /* (MIDI and Channels: one picture; the three
                                                                       * GRAIN pages another) */
-        uint32_t p = cu.page[SCR_GLO] % 8u;
+        uint32_t p = cu.page[SCR_GLO] % (5u + CG_NPAGE);
         draw_head(PG_GLO[p]);
-        draw_pager((int)p, 8, 1, 0);
+        draw_pager((int)p, (int)(5u + CG_NPAGE), 1, 0);
         draw_view(V[p]);
         draw_hints(H, 1);
         break;

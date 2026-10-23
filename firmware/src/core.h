@@ -50,7 +50,7 @@
                                   * user sample slots; ChoralRoot sets 0: engine 4 a retired slot (engines.c ENG_GONE) */
 #endif
 #ifndef FELUCCA_GRAIN
-#define FELUCCA_GRAIN 1          /* the GRAIN engine (eng_grain.c, needs SAMPLE's sets); ChoralRoot: 0, engine 8 retired */
+#define FELUCCA_GRAIN 1          /* the GRAIN engine (eng_grain.c: ChoralRoot's, grains over material it renders itself; engine 8) */
 #endif
 #ifndef FELUCCA_DRUM
 #define FELUCCA_DRUM 1           /* the DRUM engine (eng_drum.c, drum_voice.c); ChoralRoot: 0, engine 10 retired */
@@ -92,6 +92,8 @@
                                                                                   * the other engines keep their numbers */
 #define ENGI_CZ (13u + FELUCCA_SLICE + FELUCCA_VA)   /* engines.c ENGINES[] (append-only): 14 on ChoralRoot (Melodee: 15) */
 #if FELUCCA_QUAD
+#define ENGI_GRAIN 8u            /* GRAIN (eng_grain.c; ChoralRoot 0.22: back in slot 8 over its own material) */
+#define GRAIN_BLOB_V1 20u        /* GRAIN's first build's patch record (ChoralRoot 3y136) */
 #define ENGI_QUAD (13u + FELUCCA_SLICE + FELUCCA_VA + FELUCCA_CZ)   /* engines.c ENGINES[]: 15 on ChoralRoot */
 #endif
 #define ENGI_DIGITAL 1u          /* reserved without FELUCCA_FM4: never selectable (eng_ok), its sounds load as FM6 */
@@ -108,8 +110,10 @@ enum {
     F_ONOFF, F_OCT, F_STEPS,
     F_OFS, F_FMNOTE, F_FMFRQ,   /* FM6's pages: 0 at the middle of the range, the DX7 break point, an operator's frequency
                                  * (params.c param_format; F_FMFRQ: Melodee's operator pages, here a plain number) */
-    F_TIMEI                     /* F_TIME with 127 = "INF" (QUAD's filter / amp REL: the release holds, the Digitone's
+    F_TIMEI,                    /* F_TIME with 127 = "INF" (QUAD's filter / amp REL: the release holds, the Digitone's
                                  * 0..126 + INF); the editor protocol's fmt 17 */
+    F_FIX2                      /* a value in hundredths ("42.01", signed "+41.34"; GRAIN's matrix AMT: tenths below 6, whole
+                                 * above): ChoralRoot's, the editor protocol's fmt 18 */
 };
 
 typedef struct {
@@ -253,7 +257,8 @@ typedef struct {
 /* ChoralRoot's editor (cr_edit.c, docs/EDITOR.md §4): an engine's screen plan (eng_deep_t.screens), in place of the
  * title rules for the groups it has screens for: a screen is one or two pages (rows A, B) under a band, its title and
  * each cell's style */
-enum { ENG_B_NONE, ENG_B_ENV, ENG_B_FILTER, ENG_B_WINDOW, ENG_B_ALGO, ENG_B_ADE2 };   /* the band: none, the AHDSR
+enum { ENG_B_NONE, ENG_B_ENV, ENG_B_FILTER, ENG_B_WINDOW, ENG_B_ALGO, ENG_B_ADE2,
+       ENG_B_WAVE };             /* .. GRAIN: the buffers' envelopes, POS, SPRD and the grains (cr_wave_t) */   /* the band: none, the AHDSR
                                     * (ATK DEC SUS REL), the filter's response (FREQ / CUT RESO / RES TYPE), the same
                                     * with the base-width window (BASE WIDTH), the algorithm (ALGO FDBK MIX), two
                                     * attack-decay-end envelopes (rows A and B: ATK DEC END LEV each) */
@@ -300,6 +305,18 @@ typedef struct {
     uint32_t nscreens;
 } eng_deep_t;
 #define ENG_MOD_TRK 0xFFu
+/* ENG_B_WAVE's data (GRAIN, eng_grain.c grain_wave; drawn by cr_draw.c CR_W_WAVE through cr_screen.h's cr_wave_src): the
+ * two buffers' envelopes, cols columns of (min, max) in 1/127 of full scale; the grains sounding (a position 0..255
+ * across the buffer, its level 0..255: each reads A and B mixed); POS 0..127 as the voices read it (SCAN included),
+ * SPRD 0..127, MORPH 0..127 (B's weight in the mix, as the latest note plays it); busy: a source is being rendered
+ * (in place, the grains playing on); gen: the renders completed (low byte) */
+#define CR_WAVE_GRAINS 16u
+typedef struct {
+    uint32_t cols;
+    const int8_t *env[2];
+    uint8_t n, gpos[CR_WAVE_GRAINS], glev[CR_WAVE_GRAINS];
+    uint8_t pos, sprd, morph, busy, gen;
+} cr_wave_t;
 typedef struct {                 /* an engine (engines.c ENGINES[]; the eng_*.c files) */
     const char *name;            /* "ANALOG" (PRESETS, the editor) */
     const char *page_title[2];   /* EDIT 1 and EDIT 2 */

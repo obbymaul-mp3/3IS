@@ -1373,6 +1373,7 @@ static void view_save(int x0)
 /* ------------------------------------------------- GLOBAL > GRAIN, PITCH, HOLD --- */
 /* the ring (the last ~0.7 s of the music, the newest on the right) as a bar, a grain's place and width on it (POS, SIZE),
  * and as many specks above it as DENS says, scattered by RAND; the layer dark while MIX is 0 */
+#if CF_OLD_GRAIN
 static void view_grain(int x0)
 {
     int xl = x0 + 14, xr = x0 + 194, w = xr - xl, y = VIEW_Y + 26, i, n;
@@ -1396,3 +1397,6 @@ static void view_grain(int x0)
     fb_text_r(&CF_FONT_UI, xr, y + 16, cgr.freeze ? "frozen" : "now", cgr.freeze ? C_ACC(0) : FL_INK3, 1);
     fb_text_halo(&CF_FONT_UI, xl, y + 34, on ? "grains cut from the music" : "MIX is 0: grain is off", FL_INK2, FL_BG, 1);
 }
+#else
+static void view_grain(int x0) { (void)x0; }
+#endif

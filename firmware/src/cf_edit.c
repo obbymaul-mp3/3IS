@@ -22,6 +22,12 @@ static int cfe_va(uint32_t part) { return trk[part].eng_req == ENGI_VA; }
 #else
 static int cfe_va(uint32_t part) { (void)part; return 0; }
 #endif
+#if FELUCCA_GRAIN
+static int cfe_grain(uint32_t part) { return trk[part].eng_req == ENGI_GRAIN; }
+#else
+static int cfe_grain(uint32_t part) { (void)part; return 0; }
+#endif
+static uint32_t cfe_envpg(uint32_t part) { return cfe_grain(part) ? 6u : 10u; }   /* the deep page holding ENV 1 */
 static const eng_deep_t *cfe_deep(uint32_t part)
 {
     const eng_deep_t *d = ENGINES[eng_idx(trk[part].eng_req)]->deep;
@@ -46,8 +52,8 @@ static int cf_env_get(uint32_t part, int k)
         sum = n ? sum / (int32_t)n : 0;
         return CFE_FM6_INV[k] ? 99 - sum : sum;
     }
-    if (cfe_va(part) && cfe_deep(part))
-        return cfe_deep(part)->get(&trk[part], 10u, (uint32_t)k) * 99 / 127;
+    if ((cfe_va(part) || cfe_grain(part)) && cfe_deep(part))
+        return cfe_deep(part)->get(&trk[part], cfe_envpg(part), (uint32_t)k) * 99 / 127;
     {
         static const uint8_t P[4] = {P_ATK, P_DEC, P_SUS, P_REL};
         return trk[part].p[P[k]] * 99 / 127;
@@ -72,10 +78,10 @@ static void cf_env_step(uint32_t part, int k, int d)
         fm6_put_patch(part, v, 0);
         return;
     }
-    if (cfe_va(part) && cfe_deep(part)) {
+    if ((cfe_va(part) || cfe_grain(part)) && cfe_deep(part)) {
         const eng_deep_t *dp = cfe_deep(part);
-        int32_t x = dp->get(&trk[part], 10u, (uint32_t)k) + d * 3;
-        dp->set(&trk[part], 10u, (uint32_t)k, clamp(x, 0, 127));
+        int32_t x = dp->get(&trk[part], cfe_envpg(part), (uint32_t)k) + d * 3;
+        dp->set(&trk[part], cfe_envpg(part), (uint32_t)k, clamp(x, 0, 127));
         return;
     }
     {
@@ -161,8 +167,8 @@ static uint32_t cf_env_val(uint32_t part, int k)
     int32_t raw;
     if (cfe_fm6(part))
         return cfe_fm6_val(part, k);
-    if (cfe_va(part) && cfe_deep(part))
-        raw = cfe_deep(part)->get(&trk[part], 10u, (uint32_t)k);
+    if ((cfe_va(part) || cfe_grain(part)) && cfe_deep(part))
+        raw = cfe_deep(part)->get(&trk[part], cfe_envpg(part), (uint32_t)k);
     else {
         static const uint8_t P[4] = {P_ATK, P_DEC, P_SUS, P_REL};
         raw = trk[part].p[P[k]];
@@ -260,8 +266,8 @@ static void cf_env_set_val(uint32_t part, int k, uint32_t val)
                 }
             }
         raw = clamp(raw, 0, 127);
-        if (cfe_va(part) && cfe_deep(part)) {
-            cfe_deep(part)->set(&trk[part], 10u, (uint32_t)k, raw);
+        if ((cfe_va(part) || cfe_grain(part)) && cfe_deep(part)) {
+            cfe_deep(part)->set(&trk[part], cfe_envpg(part), (uint32_t)k, raw);
         } else {
             static const uint8_t P[4] = {P_ATK, P_DEC, P_SUS, P_REL};
             fm1_irq_off();
@@ -322,6 +328,10 @@ static const char *const CFE_SEC_KEY[CFE_NSEC] = {"OP1", "OP2", "OP3", "OP4", "O
 /* the VA: per section, its first deep page and how many */
 static const uint8_t CFE_VA_SEC[CFE_NSEC][2] = {{0, 2}, {2, 2}, {4, 2}, {6, 2}, {8, 2}, {10, 8}, {18, 6}, {24, 8}};
 static const char *const CFE_VA_KEY[CFE_NSEC] = {"OS1", "OS2", "OS3", "OS4", "FLT", "ENV", "LFO", "MOD"};
+/* GRAIN: SRC (the two sources), GRN (the grain cloud), FLT, ENV (1, 2), LFO (1, 2, sync), MD1..MD3 (the eight matrix slots) */
+static const uint8_t CFE_GR_SEC[CFE_NSEC][2] = {{0, 2}, {2, 2}, {4, 2}, {6, 2}, {8, 3}, {11, 3}, {14, 3}, {17, 2}};
+static const char *const CFE_GR_KEY[CFE_NSEC] = {"SRC", "GRN", "FLT", "ENV", "LFO", "MD1", "MD2", "MD3"};
+static uint32_t cfe_first(uint32_t part, uint32_t sec) { return (cfe_grain(part) ? CFE_GR_SEC : CFE_VA_SEC)[sec % CFE_NSEC][0]; }
 
 /* the LAYER's sound has one page more, its last (the last section's, after the engine's own): Glide, the sound's
  * voice. VOICE poly / mono / legato / unison, GLIDE its own glide (portamento: voice.c, TIME mode), PRIORITY the note
@@ -334,11 +344,13 @@ static uint32_t cfe_npages(uint32_t part, uint32_t sec)
         return (sec < 6u ? 6u : sec == 6u ? 2u : 3u) + g;   /* (GLO: Voice, LFO, LFO 2, the LAYER's Glide) */
     if (cfe_va(part))
         return CFE_VA_SEC[sec % CFE_NSEC][1] + g;          /* (MOD's pages, the LAYER's Glide) */
+    if (cfe_grain(part))
+        return CFE_GR_SEC[sec % CFE_NSEC][1] + g;
     return 1u;
 }
 static int cfe_glide_pg(uint32_t part, uint32_t sec, uint32_t pg)
 {
-    return part == CF_PART_LAYER && (cfe_fm6(part) || cfe_va(part)) && sec == CFE_NSEC - 1u &&
+    return part == CF_PART_LAYER && (cfe_fm6(part) || cfe_va(part) || cfe_grain(part)) && sec == CFE_NSEC - 1u &&
            pg + 1u == cfe_npages(part, sec);
 }
 static uint32_t cfe_glide_ms(int g)              /* voice.c glide_set's TIME: 1 + g^2 / 8 control blocks */
@@ -388,7 +400,7 @@ static void cfe_glide_turn(uint32_t part, uint32_t col, int d)
 }
 static const char *cfe_key_name(uint32_t part, uint32_t sec)
 {
-    return cfe_va(part) ? CFE_VA_KEY[sec % CFE_NSEC] : CFE_SEC_KEY[sec % CFE_NSEC];
+    return cfe_grain(part) ? CFE_GR_KEY[sec % CFE_NSEC] : cfe_va(part) ? CFE_VA_KEY[sec % CFE_NSEC] : CFE_SEC_KEY[sec % CFE_NSEC];
 }
 static const cfe_page_t *cfe_fm6_page(uint32_t sec, uint32_t pg)
 {
@@ -449,7 +461,7 @@ static int cfe_info(uint32_t part, uint32_t sec, uint32_t pg, uint32_t col, char
     }
     if (cfe_deep(part)) {
         const eng_deep_t *d = cfe_deep(part);
-        uint32_t page = CFE_VA_SEC[sec % CFE_NSEC][0] + pg;
+        uint32_t page = cfe_first(part, sec) + pg;
         const param_desc_t *pd;
         const char *unit;
         char t[12];
@@ -503,7 +515,7 @@ static void cfe_turn(uint32_t part, uint32_t sec, uint32_t pg, uint32_t col, int
     }
     if (cfe_deep(part)) {
         const eng_deep_t *dp = cfe_deep(part);
-        uint32_t page = CFE_VA_SEC[sec % CFE_NSEC][0] + pg;
+        uint32_t page = cfe_first(part, sec) + pg;
         const param_desc_t *pd;
         if (page >= dp->npages)
             return;
@@ -523,7 +535,7 @@ static const char *cfe_page_title(uint32_t part, uint32_t sec, uint32_t pg)
     if (cfe_fm6(part))
         return cfe_fm6_page(sec, pg)->title;
     if (cfe_deep(part)) {
-        uint32_t page = CFE_VA_SEC[sec % CFE_NSEC][0] + pg;
+        uint32_t page = cfe_first(part, sec) + pg;
         return page < cfe_deep(part)->npages ? cfe_deep(part)->pages[page].title : "";
     }
     return "";
