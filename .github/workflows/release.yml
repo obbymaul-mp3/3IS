@@ -124,6 +124,16 @@ jobs:
           (cd "$rel" && sha256sum -c SHA256SUMS && zip -q -r LICENSES.zip LICENSES)
           ls -l "$rel"
 
+      - name: Pool report (the largest RAM objects, as annotations: the log cannot be fetched by API)
+        if: always()
+        run: |
+          set -uo pipefail
+          NM="$JIELI_TOOLCHAIN/pi32v2/bin/llvm-nm"; [ -x "$NM" ] || NM="$(ls "$JIELI_TOOLCHAIN"/pi32v2/bin/*nm* 2>/dev/null | head -1)"
+          echo "nm tool: $NM"
+          "$NM" -S --size-sort -t d build/coralflower.elf 2>&1 | tail -45 | tac | while IFS= read -r l; do echo "::notice::${l:0:200}"; done
+          ls "$JIELI_TOOLCHAIN"/pi32v2/bin | tr '\n' ' ' | head -c 600 | while IFS= read -r l; do echo "::notice::bin: $l"; done
+          grep -iE "POOL|pool" build/*.map 2>/dev/null | head -10 | while IFS= read -r l; do echo "::notice::${l:0:200}"; done
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: coralflower-${{ env.VERSION }}
