@@ -4,37 +4,45 @@
 #define fcos_ui(a) fl_fcos(a)                       /* (flora.c's integer sine) */
 #define fsin_ui(a) fl_fsin(a)
 static char cu_name[16], cu_name_sub[12];        /* the chord shown (it stays after the hands let go) */
-static uint8_t cu_name_single;                   /* .. it is single notes (Off) */
+static uint8_t cu_name_single;                   /* .. it is single notes (no chord button) */
 static uint8_t cu_name_live;
 
-static void name_update(void)
+static void name_set(uint32_t root, uint32_t mask, int bass_pc, int single, uint32_t n, const uint8_t *note)
 {
-    const cf_chord_out_t *o = &cf_sn.out;
-    if (!o->sounding || !o->n) {
-        cu_name_live = 0;
-        return;
-    }
     cu_name_live = 1;
-    cu_name_single = o->single;
-    if (o->single) {
+    cu_name_single = (uint8_t)single;
+    if (single) {
         char a[4];
-        int i, k = 0;
+        int k = 0;
+        uint32_t i;
         cu_name[0] = 0;
-        for (i = 0; i < o->n && i < 3; i++) {
-            cf_pc_name(o->note[i] % 12, &cu_spell, a);
+        for (i = 0; i < n && i < 3u; i++) {
+            cf_pc_name(note[i] % 12, &cu_spell, a);
             str_cpy(cu_name + k, a, sizeof cu_name - (uint32_t)k);
             k = (int)str_len(cu_name);
-            if (i + 1 < o->n && i < 2 && k < 14)
+            if (i + 1u < n && i < 2u && k < 14)
                 cu_name[k++] = ' ', cu_name[k] = 0;
         }
         cu_name_sub[0] = 0;
         return;
     }
-    cf_chord_name(o->root_pc, o->mask, cs.bass_on && o->bass_pc != o->root_pc ? o->bass_pc : -1, &cu_spell,
-                  cu_name);
+    cf_chord_name((int)root, (uint16_t)mask, bass_pc != (int)root ? bass_pc : -1, &cu_spell, cu_name);
     cu_name_sub[0] = 0;
     if (cs.chord.quantize != CF_Q_OFF)
-        cf_numeral(cs.chord.scale, cs.chord.tonic, o->root_pc, cu_name_sub);
+        cf_numeral(cs.chord.scale, cs.chord.tonic, (int)root, cu_name_sub);
+}
+/* the chord shown: the keys' while they sound, else the sequencer's CHORDS track's while it plays (0.5, the owner:
+ * "то, что играется в секвенсоре я бы хотел, чтобы на главной отображалось на цветочке"); it stays after both let go */
+static void name_update(void)
+{
+    const cf_chord_out_t *o = &cf_sn.out;
+    if (o->sounding && o->n)
+        name_set(o->root_pc, o->mask, cs.bass_on ? o->bass_pc : -1, o->single, o->n, o->note);
+    else if (cf_sn.sq_on && cf_sn.sq_dn)
+        name_set(cf_sn.sq_droot % 12u, cf_sn.sq_dmask, cf_sn.sq_bn ? cf_sn.sq_bass[cf_sn.sq_bn - 1u] % 12 : -1,
+                 cf_sn.sq_dsingle, cf_sn.sq_dn, cf_sn.sq_dnote);
+    else
+        cu_name_live = 0;
 }
 
 /* a sound's number in its row, "007" */
@@ -45,15 +53,34 @@ static void snd_num(uint32_t idx, char *b)
     b[2] = (char)('0' + (idx + 1u) % 10u);
     b[3] = 0;
 }
-/* the top bar's sound: number, engine, name */
-static void draw_top_sound(uint32_t part)
+/* the top bar's sound: number, engine, name; the pattern's letter after it when the sound is that pattern's own
+ * (0.5: PRESETS / SELECT then change the pattern's, not HOME's) */
+static void draw_top_sound(uint32_t part, int xmax)   /* xmax: where the chips on the right begin */
 {
-    char num[4];
-    int x = 4;
+    char num[4], l[2], nm[13];
+    int x = 4, own, room;
+    uint32_t cur = sq_cur_pat(), k;
+    own = cur < SQ_NPAT && part < 3u && cfps.r[cur][part].own;
+    l[0] = (char)('A' + cur % SQ_NPAT);
+    l[1] = 0;
     snd_num(cf_snd_pos(part), num);
     x += fb_text(&CF_FONT_UI, x, Y_TOP + 1, num, FL_INK3, 1) + 5;
-    x += fb_text(&CF_FONT_UI, x, Y_TOP + 1, cf_engine_name(cf_snd[part].engine), C_SEC(1), 1) + 5;
-    fb_text(&CF_FONT_UI, x, Y_TOP + 1, cf_snd[part].name, FL_INK, 1);
+    /* the name as fits before the chips (ARP, SEQ, REC), the pattern's letter always after it; short of room the
+     * engine's label goes first, then the name's end */
+    str_cpy(nm, cf_snd[part].name, sizeof nm);
+    room = xmax - x - (own ? 7 + fb_text_w(&CF_FONT_UI, l, 1) : 0);
+    k = (uint32_t)fb_text_w(&CF_FONT_UI, cf_engine_name(cf_snd[part].engine), 1) + 5u;
+    if (fb_text_w(&CF_FONT_UI, nm, 1) + (int)k <= room) {
+        x += fb_text(&CF_FONT_UI, x, Y_TOP + 1, cf_engine_name(cf_snd[part].engine), C_SEC(1), 1) + 5;
+        room -= (int)k;
+    }
+    for (k = str_len(nm); k && fb_text_w(&CF_FONT_UI, nm, 1) > room; )
+        nm[--k] = 0;
+    x += fb_text(&CF_FONT_UI, x, Y_TOP + 1, nm, FL_INK, 1) + 4;
+    if (own) {
+        fb_rect(x, Y_TOP + 5, 2, 2, FL_INK3);
+        fb_text(&CF_FONT_UI, x + 5, Y_TOP + 1, l, C_ACC(0), 1);
+    }
 }
 
 #include "cf_views.c"                           /* (the heads, the pager, the central pictures) */
@@ -165,14 +192,52 @@ static void draw_fx(void)
 }
 
 /* ------------------------------------------------------------------ HOME --- */
+static int spell_diff(const char *a, const char *b)
+{
+    while (*a && *a == *b)
+        a++, b++;
+    return *a != *b;
+}
+
 static void draw_home(void)
 {
     char key[16], k2[8];
     flora_render(&flo, &fl_cv);
     draw_plant(Y_VIEW);
     name_update();
-    if (cu_name[0])
+    if (cu_name[0]) {
+        /* the spell: a new chord's root pops up big beside the wizard, shrinking to its place with sparks */
+        static char spell_last[8];
+        static uint32_t spell_t;
+        char root[8];
+        int n = cu_name_single ? (int)str_len(cu_name) : 1 + (cu_name[0] && (cu_name[1] == '#' || cu_name[1] == 'b'));
+        uint32_t age;
+        str_cpy(root, cu_name, (uint32_t)(n < 4 ? n : 4) + 1u);
+        if (spell_diff(root, spell_last)) {
+            str_cpy(spell_last, root, sizeof spell_last);
+            spell_t = cu.now;
+        }
+        age = cu.now - spell_t;
         draw_chord_name(6, Y_VIEW + 7, cu_name, cu_name_sub, cu_name_single);   /* (C MAJ's caps are at + 7) */
+        if (age < 550u) {
+            char b[12];
+            int w, x, y, i, sc = age < 200u ? 4 : 3;
+            fb_signs(root, b, sizeof b);
+            w = fb_text_w(&CF_FONT_UI, b, sc);
+            x = 200 - w / 2;
+            y = Y_VIEW + 70 - (int)(age / 12u);
+            fb_text_halo(&CF_FONT_UI, x, y, b, age < 300u ? 4 : 53, FL_BG, sc);
+            for (i = 0; i < 6; i++) {               /* sparks that drift up and out */
+                int sx = x + (int)((i * 37u + 11u) % (uint32_t)(w + 24)) - 12, sy = y + (int)((i * 53u) % 40u) - (int)(age / 9u);
+                int r = 1 + (int)((550u - age) / 220u);
+                int k;
+                for (k = -r; k <= r; k++) {
+                    fb_pset(sx + k, sy, 4);
+                    fb_pset(sx, sy + k, 4);
+                }
+            }
+        }
+    }
     /* the key in the corner */
     if (cs.chord.quantize != CF_Q_OFF) {
         kpc(k2, cs.chord.tonic);
@@ -226,7 +291,7 @@ static void draw_sel(void)
     draw_plant(Y_VIEW);
     fb_veil(0, Y_VIEW, FB_W, H_VIEW, FL_BG);   /* (the plant faint: the picture leads) */
     if (cf_is_off(&cs.chord, cu.sel_btn)) {
-        draw_title("OFF", "single notes, no chord");
+        draw_title("HOLD", "Holds notes after you let go");
     } else {                                     /* the button as its key shows it; its chord in words */
         cf_form_label(f, lab);
         str_cpy(b, cf_type_name(f->type), sizeof b);
@@ -505,7 +570,6 @@ static void cf_ui_draw(void)
         fb_text_r(&CF_FONT_UI, xr, Y_TOP + 1, an, FL_INK3, 1);
         if (lk)
             draw_lock(xr + 3, Y_TOP + 3, FL_INK3);
-        draw_top_sound(CF_PART_CHORD);
         {
             int x = xr - fb_text_w(&CF_FONT_UI, an, 1) - 6;
             if (cu.arp_on) {                     /* the arpeggiator plays: a chip before the algorithm */
@@ -544,7 +608,9 @@ static void cf_ui_draw(void)
                 fb_rbox(x, Y_TOP + 2, w, 11, 2, rec ? FL_C(FL_R_FIRE, 2) : FL_BG2);
                 fb_rect(x + 3, Y_TOP + 5, 4, 4, rec ? FL_INK : FL_C(FL_R_FIRE, 1));
                 fb_text(&CF_FONT_UI, x + 9, Y_TOP + 1, b, FL_INK, 1);
+                x -= 4;
             }
+            draw_top_sound(CF_PART_CHORD, x);    /* (after the chips: the name fits before them) */
         }
         (void)top;
     } else {

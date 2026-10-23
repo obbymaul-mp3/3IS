@@ -1135,19 +1135,60 @@ static void fl_sprite(flc_t *c, const uint8_t *s, int w, int h, int x0, int y0)
                 fl_put(c, x0 + x, y0 + y, s[y * w + x]);
 }
 
-/* the wizard stands on the near ground, bobbing a little to the sound; a chord makes the sceptre's crystal flash */
+/* a sprite squeezed to `sw` columns around its middle (the spin); mirrored when `flip` */
+static void fl_sprite_sq(flc_t *c, const uint8_t *s, int w, int h, int x0, int y0, int sw, int flip)
+{
+    int x, y;
+    if (sw < 1)
+        sw = 1;
+    for (x = 0; x < sw; x++) {
+        int sx = (x * w) / sw;
+        if (flip)
+            sx = w - 1 - sx;
+        for (y = 0; y < h; y++)
+            if (s[y * w + sx] != 0xFF)
+                fl_put(c, x0 + (w - sw) / 2 + x, y0 + y, s[y * w + sx]);
+    }
+}
+
+#define FL_SPIN_MS 900u
+
+void flora_event(flora_t *f, int kind)
+{
+    if (kind == FL_EV_SPIN && (!f->spin_t || f->t - f->spin_t > FL_SPIN_MS))
+        f->spin_t = f->t ? f->t : 1u;
+}
+
+/* the wizard stands on the near ground, bobbing a little to the sound; a chord makes the sceptre's crystal flash;
+   now and then he blinks, and on a big moment (HOLD, play, the intro's end) he spins once, hopping */
 static void fl_ice_render(flora_t *f, flc_t *c)
 {
     int bob = ((fl_fsin((int32_t)(f->t >> 2)) * 1) >> 14) - (int)(f->level >> 14), i;
-    int mx = c->w / 2 - ICE_MASCOT_AX, my = 42 - ICE_MASCOT_AY + bob;
+    int mx = c->w / 2 - ICE_MASCOT_AX, my, sw = ICE_MASCOT_W, flip = 0;
     uint32_t last = 0, age;
+    int blink = (f->t % 4100u) < 130u || ((f->t + 1700u) % 6700u) < 110u;
     fl_backdrop(f, c);
-    fl_sprite(c, ice_mascot, ICE_MASCOT_W, ICE_MASCOT_H, mx, my);
+    if (f->spin_t && f->t - f->spin_t < FL_SPIN_MS) {
+        int32_t ph = (int32_t)(((f->t - f->spin_t) * 1024u) / FL_SPIN_MS);
+        int32_t cs = fl_fcos(ph); /* Q14, 1 -> -1 -> 1 */
+        int hop = (fl_fsin(ph >> 1) * 7) >> 14;
+        if (cs < 0) {
+            cs = -cs;
+            flip = 1;
+        }
+        sw = 3 + (int)((cs * (ICE_MASCOT_W - 3)) >> 14);
+        bob -= hop;
+        blink = 0;
+    } else {
+        f->spin_t = 0;
+    }
+    my = 42 - ICE_MASCOT_AY + bob;
+    fl_sprite_sq(c, blink ? ice_mascot_b : ice_mascot, ICE_MASCOT_W, ICE_MASCOT_H, mx, my, sw, flip);
     for (i = 0; i < 4; i++)
         if (f->ring_t[i] > last)
             last = f->ring_t[i];
     age = f->t - last;
-    if (last && age < 300u) { /* a plus of light on the crystal, shrinking */
+    if (last && age < 300u && !f->spin_t) { /* a plus of light on the crystal, shrinking */
         int sx = mx + ICE_MASCOT_AX + 22, sy = my + ICE_MASCOT_AY - 23, r = 1 + (int)((300u - age) / 80u);
         for (i = -r; i <= r; i++) {
             fl_put(c, sx + i, sy, FL_INK);
