@@ -127,9 +127,15 @@ jobs:
       - name: Pool report (the largest RAM objects, as annotations)
         if: always()
         run: |
-          OD="$JIELI_TOOLCHAIN/common/bin/objdump"
-          "$OD" -t build/coralflower.elf 2>&1 | grep -E '[ \t]\.pool[ \t]' | sort -k5,5 -r | head -40 | while IFS= read -r l; do echo "::notice::${l:0:200}"; done
-          true
+          set +e
+          OD=$(find "$JIELI_TOOLCHAIN" -name '*objdump*' -type f 2>/dev/null | head -1)
+          echo "::notice::objdump: $OD"
+          ls build/*.elf 2>&1 | while IFS= read -r l; do echo "::notice::elf: $l"; done
+          "$OD" -t build/coralflower.elf > /tmp/syms.txt 2>/tmp/syms.err
+          echo "::notice::syms: $(wc -l < /tmp/syms.txt) lines; err: $(head -c 200 /tmp/syms.err)"
+          grep -i 'pool' /tmp/syms.txt | head -3 | while IFS= read -r l; do echo "::notice::sample: ${l:0:200}"; done
+          grep -E '\.pool' /tmp/syms.txt | awk '{print $(NF-1), $NF}' | sort -r | head -40 | while IFS= read -r l; do echo "::notice::pool: $l"; done
+          exit 0
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
