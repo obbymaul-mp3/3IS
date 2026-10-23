@@ -34,7 +34,9 @@
 #define FELUCCA_SAMPLE 0                              /* as choralroot.c: SAMPLE, GRAIN, DRUM retired */
 #endif
 #ifndef FELUCCA_GRAIN
-#define FELUCCA_GRAIN 0
+#define FELUCCA_GRAIN 1
+#define GRAIN_ASYNC 1
+#define CF_OLD_GRAIN 0
 #endif
 #ifndef FELUCCA_DRUM
 #define FELUCCA_DRUM 1                                /* as coralflower.c: the sequencer's DRUMS on part 2 */
@@ -110,7 +112,9 @@ static void cf_fx_chain(int32_t *l, int32_t *r, uint32_t n);
 
 /* ------------------------------------------------------- the emulator HAL --- */
 #include "emu_hal_fw.h"
+#if CF_OLD_GRAIN
 #include "../../firmware/src/cf_gran.c"
+#endif
 #include "../../firmware/src/cf_fx.c"
 /* ------------------------------------------------- the instrument --- */
 #define CF_UNIT 1

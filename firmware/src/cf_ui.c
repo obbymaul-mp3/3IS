@@ -131,7 +131,14 @@ static void kpc(char *b, int pc)
 
 #include "cf_edit.c"                             /* (the ENV and EDIT screens' engine side) */
 #include "cf_fxui.c"                             /* (the FX screen's controls) */
+#if CF_OLD_GRAIN
 #include "cf_granui.c"                           /* (GLO's GRAIN pages: cf_gran.c's controls) */
+#else
+#define CG_PAGE0 99u
+#define CG_NPAGE 0u
+#define cg_knob_info(a, b, c) ((void)0)
+#define cg_knob_turn(a, b, c) ((void)0)
+#endif
 static void cv_turned(int d);
 #include "cf_sequi.c"                            /* (the SEQUENCER screens' controls) */
 
@@ -617,7 +624,7 @@ static void ui_say(const char *a, const char *b)
 static uint32_t screen_pages(uint32_t scr)
 {
     if (scr == SCR_GLO)
-        return 5u + CG_NPAGE;                    /* Display, MIDI, Channels, Play, Reset, Grain, Pitch, Hold */
+        return 5u + CG_NPAGE;                    /* Display, MIDI, Channels, Play, Reset (+ the old Grain, Pitch, Hold) */
     if (scr == SCR_ENV)
         return 3u;                               /* chord + bass, chord, bass */
     if (scr == SCR_ARP)

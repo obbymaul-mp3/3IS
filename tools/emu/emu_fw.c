@@ -217,6 +217,9 @@ void emu_fw_frame(void)                           /* main.c's loop body (coralfl
         emu_hal.ui_lock_max_us = d;
     cf_ui_draw();
     cr_update_poll();                             /* main.c: OCT- + OCT+ + HOME held 5 s */
+#if FELUCCA_GRAIN
+    grain_poll();                                 /* main.c: GRAIN's render slice */
+#endif
     settings_poll();                              /* main.c: the settings record, once quiet (cf_settings.c) */
     if (fm1_ms > BG_SETTLE_MS && bootguard.pending)
         bootguard_settled(&bootguard);
@@ -228,6 +231,9 @@ void emu_fw_idle(void)                            /* main.c: the input scan whil
     fm1_irq_off();
     cf_ui_pump();
     fm1_irq_on();
+#if FELUCCA_GRAIN
+    grain_poll();
+#endif
 }
 
 static uint32_t emu_model_over85, emu_model_over100, emu_model_max;   /* CF_LOADMODEL, since the last dump */
