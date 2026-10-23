@@ -130,7 +130,6 @@ static void kpc(char *b, int pc)
 }
 
 #include "cf_edit.c"                             /* (the ENV and EDIT screens' engine side) */
-#include "cf_fxui.c"                             /* (the FX screen's controls) */
 #if CF_OLD_GRAIN
 #include "cf_granui.c"                           /* (GLO's GRAIN pages: cf_gran.c's controls) */
 #else
@@ -139,6 +138,7 @@ static void kpc(char *b, int pc)
 #define cg_knob_info(a, b, c) ((void)0)
 #define cg_knob_turn(a, b, c) ((void)0)
 #endif
+#include "cf_fxui.c"                             /* (the FX screen's controls) */
 static void cv_turned(int d);
 #include "cf_sequi.c"                            /* (the SEQUENCER screens' controls) */
 
@@ -675,7 +675,7 @@ static void ui_select(int d)                     /* SELECT: the bass sound, or a
         return;
     }
     if (cu.scr == SCR_FX) {                      /* FX: the effect along the chain */
-        cu.fx_pos = (uint8_t)clampi(cu.fx_pos + d, 0, CFX_N - 1);
+        cu.fx_pos = (uint8_t)clampi(cu.fx_pos + d, 0, CF_OLD_GRAIN ? (int)CFX_N : (int)CFX_N - 1);   /* (the granular tile after the chain) */
         return;
     }
     if (screen_pages(cu.scr) > 1u) {

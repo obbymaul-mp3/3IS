@@ -13,7 +13,9 @@ static const char *const CFX_FTYPE[3] = {"Low pass", "Band pass", "High pass"};
 static const char *const CFX_FTYPE_S[3] = {"LPF", "BPF", "HPF"};   /* (a knob cell holds 7 characters) */
 static const char *const CFX_RTYPE[3] = {"Room", "Hall", "Plate"};
 
-static uint32_t cfx_sel(void) { return cs.fx.order[cu.fx_pos % CFX_N] % CFX_N; }
+static uint8_t cfx_gpage;                       /* the granular tile's page: Grain, Pitch, Hold */
+static int cfx_on_grain(void) { return CF_OLD_GRAIN && cu.fx_pos >= CFX_N; }   /* the tile after the chain: GRAIN */
+static uint32_t cfx_sel(void) { return cs.fx.order[(cu.fx_pos < CFX_N ? cu.fx_pos : CFX_N - 1u) % CFX_N] % CFX_N; }
 static int cfx_is_on(uint32_t e) { return (int)((cs.fx.on >> e) & 1u); }
 
 /* "1004 Hz", "2.5 kHz", "12 kHz": 7 characters at most */
@@ -43,6 +45,12 @@ static void cfx_rate(char *b, uint32_t hz100)
 static void cfx_knob_info(int knob, cf_knob_t *o)
 {
     uint32_t e = cfx_sel();
+#if CF_OLD_GRAIN
+    if (cfx_on_grain()) {
+        cg_knob_info(cfx_gpage, knob, o);
+        return;
+    }
+#endif
     const uint8_t *v = cs.fx.v[e];
     int k = knob - 1;                            /* (KNOB 1 the switch, KNOB 2-4 the three values) */
     if (knob == 0) {
@@ -73,6 +81,12 @@ static void cfx_knob_info(int knob, cf_knob_t *o)
 static void cfx_knob_turn(int knob, int d)
 {
     uint32_t e = cfx_sel();
+#if CF_OLD_GRAIN
+    if (cfx_on_grain()) {
+        cg_knob_turn(cfx_gpage, knob, d);
+        return;
+    }
+#endif
     uint8_t *v = cs.fx.v[e];
     int k = knob - 1;
     if (knob == 0)
@@ -87,6 +101,12 @@ static void cfx_knob_turn(int knob, int d)
 /* ALGORITHM on FX: the selected effect one place along the chain, the cursor with it */
 static void cfx_move(int d)
 {
+#if CF_OLD_GRAIN
+    if (cfx_on_grain()) {                        /* ALGORITHM on the granular tile: its page */
+        cfx_gpage = (uint8_t)wrapi((int)cfx_gpage + (d > 0 ? 1 : -1), (int)CG_NPAGE);
+        return;
+    }
+#endif
     int p = (int)(cu.fx_pos % CFX_N), q = clampi(p + (d > 0 ? 1 : -1), 0, CFX_N - 1);
     uint8_t t;
     if (q == p)

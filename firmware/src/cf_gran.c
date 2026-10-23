@@ -23,7 +23,7 @@
 
 _Static_assert(CTL == 32 && FS == 44100u, "cf_gran.c: a block is 32 samples at 44.1 kHz");
 
-#define CG_LOG2 13                       /* the ring: 2^13 samples at FS / 2 (14 overflowed .pool by 4100 B on the device build) */
+#define CG_LOG2 15                       /* the ring: 2^13 samples at FS / 2 (14 overflowed .pool by 4100 B on the device build) */
 #define CG_N (1u << CG_LOG2)
 #define CG_MASK (CG_N - 1u)
 #define CG_NG 8                          /* grains at once */

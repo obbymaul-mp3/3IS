@@ -153,41 +153,76 @@ static void draw_fx_graph(uint32_t e, int x0, int yb, int w, int h)
     }
 }
 
+static void draw_grain_graph(int x0, int yb, int w, int h)
+{
+    int xl = x0, xr = x0 + w, ww = xr - xl, y = yb - h / 2 - 5, i, n;
+    int on = cgr.mix != 0;
+    int gw = 4 + (int)cgr.size * (ww / 2) / 100;
+    int gx = xr - gw - (int)cgr.pos * (ww - gw) / 100;
+    uint32_t seed = (cu.now >> 7) * 40503u;
+    fb_rect(xl, y, ww, 10, FL_BG3);                         /* the ring: the last sound, the newest on the right */
+    fb_rect(gx, y, gw, 10, on ? C_ACC(1) : FL_INK3);        /* where the grains read, and how long they are */
+    if (cgr.freeze)
+        fb_rect(xr - 2, y - 3, 2, 16, C_ACC(0));            /* the head, stopped */
+    n = 3 + (int)cgr.dens * 14 / 100;
+    for (i = 0; i < n; i++) {
+        uint32_t hh = (uint32_t)(i + 1) * 2654435761u + seed;
+        int jx = (((int)((hh >> 8) & 255u) - 128) * (int)cgr.rnd * ww) / (100 * 256 * 2);
+        int px = gx + gw / 2 + jx, py = y - 5 - (int)((hh >> 20) & 15u);
+        px = px < xl ? xl : px > xr - 2 ? xr - 2 : px;
+        fb_rect(px, py, 2, 2, on ? C_ACC(0) : FL_INK3);
+    }
+}
+
 /* FX: the chain as a row of tiles in its order (on: raised, off: dim), the sound running along it, the selected
- * effect named above and pictured below */
+ * effect named above and pictured below. After the chain one more tile, GRN: the granular effect on everything that
+ * plays (cf_gran.c, three pages that ALGORITHM turns) */
 static void draw_fx(void)
 {
-    uint32_t sel = cu.fx_pos % CFX_N, e = cs.fx.order[sel] % CFX_N, i;
-    int x0 = 8, y0 = Y_VIEW + 58, tw = 34, gap = 4, run = 6 * tw + 5 * gap;
+    int grain = cfx_on_grain();
+    uint32_t sel = cu.fx_pos % (CFX_N + 1u), e = cs.fx.order[(sel < CFX_N ? sel : CFX_N - 1u) % CFX_N] % CFX_N, i;
+    int ntile = CFX_N + (CF_OLD_GRAIN ? 1 : 0), tw = CF_OLD_GRAIN ? 29 : 34, gap = CF_OLD_GRAIN ? 3 : 4;
+    int x0 = 8, y0 = Y_VIEW + 58, run = ntile * tw + (ntile - 1) * gap;
     char sub[24];
     flora_render(&flo, &fl_cv);
     draw_plant(Y_VIEW);
     fb_veil(0, Y_VIEW, FB_W, H_VIEW, FL_BG);   /* (the plant faint: the picture leads) */
-    str_cpy(sub, e == CFX_FILTER ? CFX_FTYPE[cs.fx.v[e][0] % 3u] : e == CFX_REVERB ? CFX_RTYPE[cs.fx.v[e][0] % 3u] : "",
-            sizeof sub);
-    if (sub[0])
-        str_cpy(sub + str_len(sub), "  ", 3);
-    str_cpy(sub + str_len(sub), cfx_is_on(e) ? "on" : "off", 4);
-    draw_title(CFX_NAME[e], sub);
+    if (grain) {
+        str_cpy(sub, cgr.mix ? "on  " : "off  ", sizeof sub);
+        str_cpy(sub + str_len(sub), CG_PAGE_NAME[cfx_gpage % CG_NPAGE], 8);
+        draw_title("Grain", sub);
+    } else {
+        str_cpy(sub, e == CFX_FILTER ? CFX_FTYPE[cs.fx.v[e][0] % 3u] : e == CFX_REVERB ? CFX_RTYPE[cs.fx.v[e][0] % 3u] : "",
+                sizeof sub);
+        if (sub[0])
+            str_cpy(sub + str_len(sub), "  ", 3);
+        str_cpy(sub + str_len(sub), cfx_is_on(e) ? "on" : "off", 4);
+        draw_title(CFX_NAME[e], sub);
+    }
     fb_hline(x0, y0 + 13, run, FL_BG3);          /* the signal's way, a dot running along it */
     {
         int d = (int)((cu.now / 10u) % (uint32_t)run);
         fb_rect(x0 + d, y0 + 12, 2, 3, C_ACC(1));
     }
-    for (i = 0; i < CFX_N; i++) {
-        uint32_t id = cs.fx.order[i] % CFX_N;
-        int x = x0 + (int)i * (tw + gap), on = cfx_is_on(id);
+    for (i = 0; i < (uint32_t)ntile; i++) {
+        int g = i >= CFX_N;
+        uint32_t id = g ? 0u : cs.fx.order[i] % CFX_N;
+        int x = x0 + (int)i * (tw + gap), on = g ? cgr.mix != 0 : cfx_is_on(id);
         fb_rbox(x, y0, tw, 26, 2, on ? cf_panel(2) : cf_panel(1));
         if (i == sel)
             fb_rframe(x, y0, tw, 26, C_ACC(1));
-        fb_text_c(&CF_FONT_UI, x + tw / 2, y0 + 3, CFX_SHORT[id], on ? FL_INK : FL_INK3, 1);
+        fb_text_c(&CF_FONT_UI, x + tw / 2, y0 + 3, g ? "GRN" : CFX_SHORT[id], on ? FL_INK : FL_INK3, 1);
         fb_rect(x + tw / 2 - 3, y0 + 19, 6, 2, on ? C_ACC(1) : FL_BG3);
     }
     fb_rect(x0 + (int)sel * (tw + gap) + tw / 2 - 1, y0 + 29, 3, 2, C_ACC(1));   /* (under the selected one) */
-    draw_fx_graph(e, x0, Y_VIEW + 122, run, 24);
+    if (grain)
+        draw_grain_graph(x0, Y_VIEW + 122, run, 24);
+    else
+        draw_fx_graph(e, x0, Y_VIEW + 122, run, 24);
     {
         static const char *const H[4] = {"SELECT", "pick", "ALGO", "move"};
-        draw_hints(H, 2);
+        static const char *const HG[4] = {"SELECT", "pick", "ALGO", "page"};
+        draw_hints(grain ? HG : H, 2);
     }
 }
 

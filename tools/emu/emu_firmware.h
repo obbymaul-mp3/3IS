@@ -34,9 +34,8 @@
 #define FELUCCA_SAMPLE 0                              /* as choralroot.c: SAMPLE, GRAIN, DRUM retired */
 #endif
 #ifndef FELUCCA_GRAIN
-#define FELUCCA_GRAIN 1
-#define GRAIN_ASYNC 1
-#define CF_OLD_GRAIN 0
+#define FELUCCA_GRAIN 0
+#define CF_OLD_GRAIN 1
 #endif
 #ifndef FELUCCA_DRUM
 #define FELUCCA_DRUM 1                                /* as coralflower.c: the sequencer's DRUMS on part 2 */
