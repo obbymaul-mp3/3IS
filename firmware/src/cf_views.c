@@ -497,6 +497,47 @@ static void view_glide(int x0)
                  FL_BG, 1);
 }
 
+#if FELUCCA_GRAIN
+/* ------------------------------------------------------- SOUND, GRAIN --- */
+/* ChoralRoot's wave band: the two sources' waveforms (A, and B as MORPH brings it in), POS as a line and SPRD as the
+ * bracket round it, and the grains playing, each a spike at its place in the source, tall as it is loud */
+static void view_grain_wave(int x0)
+{
+    const cr_wave_t *w = grain_wave(cu.edit_part);
+    int xa = x0 - 4, cw = (int)w->cols, cy = VIEW_Y + 30, hgt = 27, i, k;
+    int px, sp, morph = w->morph;
+    fb_rect(xa, cy - hgt - 2, cw, 2 * hgt + 5, FL_BG1);
+    fb_hline(xa, cy, cw, FL_BG3);
+    for (k = 0; k < 2; k++) {
+        uint8_t col = k == 0 ? (morph < 64 ? C_ACC(0) : C_ACC(2)) : (morph >= 64 ? C_SEC(0) : C_SEC(2));
+        if (k == 1 && morph == 0)
+            continue;                            /* (B is not in the mix) */
+        for (i = 0; i < cw; i++) {
+            int lo = w->env[k][2 * i], hi = w->env[k][2 * i + 1];
+            int y0 = cy - hi * hgt / 127, y1 = cy - lo * hgt / 127;
+            if (y1 <= y0)
+                y1 = y0 + 1;
+            fb_vline(xa + i, y0, y1 - y0, col);
+        }
+    }
+    px = xa + (int)w->pos * (cw - 1) / 127;
+    sp = (int)w->sprd * (cw - 1) / 254;
+    fb_rect(px - sp > xa ? px - sp : xa, cy - hgt - 2, 1, 2 * hgt + 5, FL_INK3);
+    fb_rect(px + sp < xa + cw - 1 ? px + sp : xa + cw - 1, cy - hgt - 2, 1, 2 * hgt + 5, FL_INK3);
+    fb_hline(px - sp > xa ? px - sp : xa, cy - hgt - 2, (px + sp < xa + cw ? px + sp : xa + cw) - (px - sp > xa ? px - sp : xa), FL_INK3);
+    fb_vline(px, cy - hgt - 4, 2 * hgt + 9, FL_INK);                      /* POS */
+    for (i = 0; i < (int)w->n; i++) {            /* the grains */
+        int gx = xa + (int)w->gpos[i] * (cw - 1) / 255, gh = 2 + (int)w->glev[i] * 12 / 255;
+        fb_rect(gx - 1, cy + hgt + 3 - gh, 3, gh, FL_INK);
+    }
+    fb_text_halo(&CF_FONT_MICRO, xa + 2, cy - hgt - 10, "A", C_ACC(0), FL_BG, 1);
+    if (morph)
+        fb_text_halo(&CF_FONT_MICRO, xa + 10, cy - hgt - 10, "B", C_SEC(0), FL_BG, 1);
+    if (w->busy)
+        fb_text_halo(&CF_FONT_MICRO, xa + cw - 36, cy - hgt - 10, "RENDER", FL_INK2, FL_BG, 1);
+}
+#endif
+
 #if FELUCCA_VA
 /* ------------------------------------------------------- SOUND, the VA --- */
 /* a value of the VA sound edited: deep page `page`, column col (cf_edit.c's) */
