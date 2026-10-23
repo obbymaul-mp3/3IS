@@ -6,7 +6,7 @@
 #define CF_SPLASH_MS 1400u
 
 /* 3IS shows its own version here; FELUCCA_VERSION stays "CoralFlower ..": the update tool reads it */
-#define CF_SHOWN_VERSION "3IS 0.5"
+#define CF_SHOWN_VERSION "an Obby Mall synth"
 
 static void cf_splash_frame(uint32_t t)
 {

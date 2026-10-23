@@ -160,6 +160,7 @@ static void draw_fx_graph(uint32_t e, int x0, int yb, int w, int h)
  * the tip glows with their number and flashes at each new one; on the tempo (SYNC) every step also throws a ring; frozen
  * the tip is a still crystal that twinkles; with MIX 0 the wand is dim and quiet. The colours are the hat's (palette
  * 60..63: they follow the chord's root, like the wizard's) and the ice */
+#define CF_KEYSTRIP 0
 static void spell_disc(int cx, int cy, int rx, int ry, int col);
 static void spell_spark(int x, int y, int r);
 static void wand_glow(int cx, int cy, int r, uint8_t c)       /* a dithered disc: a glow that lets the picture through */
@@ -180,14 +181,13 @@ static void wand_ring(int cx, int cy, int r, uint8_t c)
                 fb_pset(cx + x, cy + y, c);
         }
 }
-static void draw_grain_graph(int x0, int yb, int w, int h)
+static void draw_grain_graph(int x0, int top, int w, int h)
 {
     static uint32_t last_hits, t_hit;
-    const int top = yb - 30, bot = yb + 18, tx = x0 + w * 60 / 100, ty = top + 22, hx = x0 + 6, hy = bot - 5;
+    const int bot = top + h, tx = x0 + w * 60 / 100, ty = top + h * 42 / 100, hx = x0 + 6, hy = bot - 8;
     int on = cgr.mix != 0, frozen = cgr.freeze != 0, na = 0, i, k, pxv[17], pyv[17];
     uint32_t now = cu.now, since, hits = cg.hits;
     int amp, glow, u0, ul;
-    (void)h;
     if (hits != last_hits) {                                  /* a grain started since the last frame */
         last_hits = hits;
         t_hit = now;
@@ -280,9 +280,9 @@ static void draw_grain_graph(int x0, int yb, int w, int h)
                 continue;
             }
             f = (int)(age * 256u / life);
-            rise = 8 + (int)sp[k].rr / 8;                      /* pitch 1.0 -> 24 px, 0.5 -> 16, 4.0 -> 40 px */
-            if (rise > 34)
-                rise = 34;
+            rise = 12 + (int)sp[k].rr / 5;                     /* pitch 1.0 -> 38 px, 0.5 -> 25, 4.0 -> 60 px */
+            if (rise > 52)
+                rise = 52;
             dx = sp[k].pan * f * 56 / (128 * 256) + f * 22 / 256;
             dy = sp[k].rev ? f * 22 / 256 + (f * f) / 4096 : -(f * rise) / 256 + (f * f) / 6000;
             sx = tx + dx;
@@ -319,7 +319,7 @@ static void draw_grain_graph(int x0, int yb, int w, int h)
         }
     } else if (!on && ((now >> 8) & 7u) == 0)
         fb_pset(tx + 5, pyv[16] - 6, FL_I_ICE2);
-    fb_unclip();
+    fb_clip(0, Y_VIEW, FB_W, Y_KNOBS);
     /* what the rhythm and the layer are, small, at the handle */
     if (on && (cgr.sync || cgr.layer)) {
         char t[16];
@@ -335,6 +335,153 @@ static void draw_grain_graph(int x0, int yb, int w, int h)
     }
 }
 
+/* ---- the wizard's hands (REVERB and PHASER's pictures) ---- */
+/* the pane the FX pictures sit in (the space the key strip had) */
+static void fx_pane(int x, int y, int w, int h)
+{
+    fb_rbox(x - 4, y - 2, w + 8, h + 4, 3, cf_panel(1));
+}
+static int wz_cos(uint32_t ph) { return osc_sine(ph + 0x40000000u); }
+/* one hand at (cx, cy) with its fingers pointing along dir (+1 right, -1 left): the sleeve behind it in the hat's colour
+ * out to the pane's edge, the palm and four fingers in ice, fanned by `spread` (0 .. 8) */
+static void wz_hand(int cx, int cy, int dir, int spread, int sleeve)
+{
+    static const uint8_t FL[4] = {7, 9, 9, 7};
+    const int sc = 2;                                                         /* drawn at twice the size */
+    int wx = cx - dir * 6 * sc, i, t, sx = dir > 0 ? wx - sleeve : wx, xl = dir > 0 ? cx - 5 * sc : cx - 4 * sc;
+    int fx = cx + dir * 5 * sc, ph = 12 * sc;
+    fb_rbox(sx - 1, cy - 9 * sc - 1, sleeve + 2, 18 * sc + 2, 4, FL_I_OUT);   /* the sleeve and its cuff */
+    fb_rbox(sx, cy - 9 * sc, sleeve, 18 * sc, 4, FL_S0);
+    fb_rect(sx + 2, cy - 9 * sc + 2, sleeve - 4, 3, FL_S1);
+    fb_rect(sx + 2, cy + 9 * sc - 6, sleeve - 4, 4, FL_S2);
+    fb_rect(dir > 0 ? wx - 6 : wx, cy - 9 * sc, 6, 18 * sc, FL_S1);
+    fb_rect(dir > 0 ? wx - 6 : wx + 5, cy - 9 * sc, 1, 18 * sc, FL_I_OUT);
+    fb_rbox(xl - 1, cy - ph / 2 - 1, 10 * sc + 2, ph + 2, 4, FL_I_OUT);       /* the palm */
+    fb_rbox(xl, cy - ph / 2, 10 * sc, ph, 3, FL_I_ICE);
+    fb_hline(xl + 2, cy + ph / 2 - 3, 10 * sc - 4, FL_I_ICE2);
+    fb_hline(xl + 2, cy + ph / 2 - 2, 10 * sc - 4, FL_I_ICE2);
+    for (i = 0; i < 4; i++) {                                                 /* the fingers: outline, then fill */
+        int y0 = cy - ph / 2 + 2 + i * 3 * sc, y1 = y0 + (i * 2 - 3) * spread * sc / 4, tx = fx + dir * FL[i] * sc;
+        fb_line(fx, y0 - 1, tx, y1 - 1, FL_I_OUT);
+        fb_line(fx, y0 + 2 * sc - 1, tx, y1 + 2 * sc - 1, FL_I_OUT);
+        for (t = 0; t < 2; t++)
+            fb_pset(tx + dir, y1 + t * 2, FL_I_OUT);
+        fb_pset(tx + dir, y1 + 1, FL_I_OUT);
+        fb_pset(tx + dir, y1 + 2, FL_I_OUT);
+    }
+    for (i = 0; i < 4; i++) {
+        int y0 = cy - ph / 2 + 2 + i * 3 * sc, y1 = y0 + (i * 2 - 3) * spread * sc / 4, tx = fx + dir * FL[i] * sc;
+        for (t = 0; t < 2 * sc - 1; t++)
+            fb_line(fx, y0 + t, tx, y1 + t, t < sc - 1 ? FL_I_ICE : FL_I_ICE2);
+    }
+    {                                                                         /* the thumb */
+        int bx = cx - dir * 2 * sc, by = cy - ph / 2, ex = cx + dir * 5 * sc, ey = by - 6 * sc - spread;
+        for (t = -1; t <= 2 * sc - 1; t++)
+            fb_line(bx, by + (t < 0 || t > 2 * sc - 2 ? t : 1), ex, ey + t, t < 0 || t > 2 * sc - 2 ? FL_I_OUT : FL_I_ICE);
+    }
+}
+/* REVERB: both hands raised round a spell that grows with the reverb (MIX) and sends out echo rings (DECAY: more of
+ * them, slower to go); the hall and the plate add runes circling it. Off: the hands low and apart, a cold ember */
+static void draw_reverb_hands(int x0, int top, int w, int h)
+{
+    const uint8_t *v = cs.fx.v[CFX_REVERB];
+    int on = cfx_is_on(CFX_REVERB), mix = v[2] > 100u ? 100 : (int)v[2], dec = v[1] > 100u ? 100 : (int)v[1];
+    int type = v[0] > 2u ? 2 : (int)v[0], cx = x0 + w / 2, i, n, R, cy, hx, hy, tr = 0;
+    uint32_t now = cu.now;
+    R = on ? 4 + mix * 26 / 100 + (osc_sine(now * 6000000u) * 2) / 32768 : 3;
+    cy = top + h * 40 / 100;
+    hx = R + 36 + (on ? 0 : 14);
+    hy = cy + 14 + (on ? 0 : 10);
+    if (on && mix > 40)
+        tr = (int)((now >> 5) & 1u) * (mix > 75 ? 2 : 1) - 1;               /* the hands tremble with a big spell */
+    fx_pane(x0, top, w, h);
+    fb_clip(x0 - 4, top - 2, x0 + w + 4, top + h + 2);
+    if (on) {
+        wand_glow(cx, cy, R + 8, FL_S2);
+        wand_glow(cx, cy, R + 4, FL_S3);
+    }
+    n = on ? 1 + dec / 34 : 0;                                                 /* the echoes: rings going out, fading */
+    for (i = 0; i < n; i++) {
+        uint32_t per = 800u + (uint32_t)dec * 12u, ph = (now + (uint32_t)i * per / (uint32_t)(n + 1)) % per;
+        int rr = R + 3 + (int)(ph * 22u / per);
+        wand_ring(cx, cy, rr, ph < per / 3u ? FL_I_ICE : ph < per * 2u / 3u ? FL_I_ICE2 : FL_I_ICE3);
+    }
+    spell_disc(cx, cy, R + 1, R + 1, on ? FL_I_OUT : FL_S2);                  /* the orb */
+    spell_disc(cx, cy, R, R, on ? FL_S3 : FL_S2);
+    if (on) {
+        spell_disc(cx, cy, R * 3 / 4, R * 3 / 4, FL_I_ICE3);
+        spell_disc(cx - R / 5, cy - R / 5, R / 2, R / 2, FL_I_ICE2);
+        spell_disc(cx - R / 4, cy - R / 3, R / 5 + 1, R / 5 + 1, FL_I_ICE);
+    }
+    if (on) {                                                                  /* the runes circling it */
+        int nr = 2 + type * 2 + mix / 40;
+        for (i = 0; i < nr; i++) {
+            uint32_t ph = now * (3000000u + (uint32_t)type * 800000u) + (uint32_t)i * (0xFFFFFFFFu / (uint32_t)nr);
+            int rx = R + 10, ex = (osc_sine(ph) * rx) / 32768, ey = (wz_cos(ph) * (rx * 6 / 10)) / 32768;
+            spell_spark(cx + ex, cy + ey, i & 1 ? 1 : 2);
+        }
+    }
+    wz_hand(cx - hx, hy + tr, 1, on ? 2 + mix / 14 : 0, cx - hx - x0 + 2);     /* the hands, palms to the spell */
+    wz_hand(cx + hx, hy - tr, -1, on ? 2 + mix / 14 : 0, x0 + w - (cx + hx) + 2);
+    fb_clip(0, Y_VIEW, FB_W, Y_KNOBS);
+}
+/* PHASER: one hand shooting energy beams to the right: RATE brings more beams, faster, and more hectic (their aim
+ * jumps about more often and further); DEPTH makes them wave; MIX their glow. Off: the hand low, a single faint spark */
+static void draw_phaser_hand(int x0, int top, int w, int h)
+{
+    const uint8_t *v = cs.fx.v[CFX_PHASER];
+    int on = cfx_is_on(CFX_PHASER), rate = v[0] > 100u ? 100 : (int)v[0], depth = v[1] > 100u ? 100 : (int)v[1];
+    int mix = v[2] > 100u ? 100 : (int)v[2], cy = top + h / 2 + (on ? 0 : 14), hxc = x0 + 46, fx = hxc + 10 + 18, nb, i;
+    int xend = x0 + w - 6, plen = xend - fx;
+    uint32_t now = cu.now;
+    fx_pane(x0, top, w, h);
+    fb_clip(x0 - 4, top - 2, x0 + w + 4, top + h + 2);
+    nb = on ? 1 + rate * 7 / 100 : 0;
+    for (i = 0; i < nb; i++) {
+        uint32_t seed = (uint32_t)(i + 1) * 2654435761u, re = now / (uint32_t)(260 - rate * 2) + seed;   /* hectic: the aim re-rolls faster */
+        int span = h / 2 - 8, yb = cy + (nb > 1 ? (i * 2 - (nb - 1)) * span / nb : 0);
+        int jit = (int)((re * 2246822519u) >> 24) - 128, ye;
+        uint32_t pos = (now * (uint32_t)(40 + rate * 5) / 1000u) * 256u / (uint32_t)plen + (uint32_t)i * 97u, t;
+        int seg, px = -1, py = 0;
+        ye = yb + jit * (rate * span / 100) / 160;                              /* the end of the beam, shaken by the rate */
+        ye = ye < top + 4 ? top + 4 : ye > top + h - 4 ? top + h - 4 : ye;
+        t = pos % 330u;                                                         /* (the head runs a little past the end) */
+        if (mix > 25) {                                                         /* the faint path under the beam */
+            int xx;
+            for (xx = fx; xx < xend; xx += 3)
+                fb_pset(xx, cy + (ye - cy) * (xx - fx) / plen, FL_S2);
+        }
+        for (seg = 0; seg <= 12; seg++) {                                       /* a beam: a head and a fading tail */
+            int tt = (int)t - seg * 12, X, Y, wob;
+            uint8_t col;
+            if (tt < 0 || tt > 256)
+                continue;
+            X = fx + plen * tt / 256;
+            wob = (osc_sine(now * 12000000u + (uint32_t)i * 900000000u + (uint32_t)tt * 14000000u) * (depth * 7 / 100)) / 32768;
+            Y = cy + (ye - cy) * tt / 256 + wob;
+            col = seg < 2 ? FL_INK : seg < 4 ? FL_I_ICE : seg < 7 ? FL_I_ICE2 : seg < 10 ? FL_S3 : FL_S2;
+            if (px >= 0) {
+                fb_line(px, py, X, Y, col);
+                if (seg < 7)
+                    fb_line(px, py + 1, X, Y + 1, seg < 3 ? FL_I_ICE2 : seg < 5 ? FL_I_ICE3 : FL_S2);
+            }
+            px = X;
+            py = Y;
+            if (seg == 0)
+                spell_spark(X, Y, 1 + (rate > 60));
+        }
+    }
+    if (on) {                                                                   /* the charge at the fingertips */
+        int gr = 4 + rate / 18 + (int)((now >> 6) & 1u) + mix / 40;
+        wand_glow(fx, cy, gr + 3, FL_S2);
+        wand_glow(fx, cy, gr, FL_S3);
+        spell_spark(fx + 2, cy, 2 + (rate > 50));
+    } else if (((now >> 8) & 3u) == 0)
+        fb_pset(fx + 3, cy - 3, FL_I_ICE2);
+    wz_hand(hxc, cy, 1, on ? 3 + rate / 16 : 0, hxc - x0 + 2);
+    fb_clip(0, Y_VIEW, FB_W, Y_KNOBS);
+}
+
 /* FX: the chain as a row of tiles in its order (on: raised, off: dim), the sound running along it, the selected
  * effect named above and pictured below. After the chain one more tile, GRN: the granular effect on everything that
  * plays (cf_gran.c, three pages that ALGORITHM turns) */
@@ -348,6 +495,7 @@ static void draw_fx(void)
     flora_render(&flo, &fl_cv);
     draw_plant(Y_VIEW);
     fb_veil(0, Y_VIEW, FB_W, H_VIEW, FL_BG);   /* (the plant faint: the picture leads) */
+    fb_rect(0, Y_VIEW + H_VIEW, FB_W, Y_KNOBS - Y_VIEW - H_VIEW, FL_BG);   /* (the strip under it, no keys now) */
     if (grain) {
         str_cpy(sub, cgr.mix ? "on  " : "off  ", sizeof sub);
         str_cpy(sub + str_len(sub), CG_PAGE_NAME[cfx_gpage % CG_NPAGE], 8);
@@ -377,9 +525,15 @@ static void draw_fx(void)
     }
     fb_rect(x0 + (int)sel * (tw + gap) + tw / 2 - 1, y0 + 29, 3, 2, C_ACC(1));   /* (under the selected one) */
     if (grain)
-        draw_grain_graph(x0, Y_VIEW + 122, run, 24);
-    else
-        draw_fx_graph(e, x0, Y_VIEW + 122, run, 24);
+        draw_grain_graph(x0, Y_VIEW + 92, run, Y_KNOBS - 4 - (Y_VIEW + 92));
+    else if (e == CFX_REVERB)
+        draw_reverb_hands(x0, Y_VIEW + 92, run, Y_KNOBS - 4 - (Y_VIEW + 92));
+    else if (e == CFX_PHASER)
+        draw_phaser_hand(x0, Y_VIEW + 92, run, Y_KNOBS - 4 - (Y_VIEW + 92));
+    else {
+        fx_pane(x0, Y_VIEW + 92, run, Y_KNOBS - 4 - (Y_VIEW + 92));
+        draw_fx_graph(e, x0, Y_KNOBS - 14, run, 70);
+    }
     {
         static const char *const H[4] = {"SELECT", "pick", "ALGO", "move"};
         static const char *const HG[4] = {"SELECT", "pick", "ALGO", "page"};
@@ -892,7 +1046,7 @@ static void cf_ui_draw(void)
                     cf_snd[cu.edit_part].name, FL_INK3, 1);
     }
     cu_hints = 0;                                /* (the screen names its hints while it draws: draw_hints) */
-    fb_clip(0, Y_VIEW, FB_W, Y_VIEW + H_VIEW);
+    fb_clip(0, Y_VIEW, FB_W, cu.scr == SCR_FX ? Y_KNOBS : Y_VIEW + H_VIEW);   /* (FX has the key strip's space too) */
     if (cu.scr == SCR_HOME)
         draw_home();
     else if (cu.scr == SCR_SEL)
@@ -931,7 +1085,7 @@ static void cf_ui_draw(void)
         cf_present();
         return;
     }
-    if (cu.scr != SCR_HOME)
+    if (cu.scr != SCR_HOME && cu.scr != SCR_FX)
     fb_rect(0, Y_VIEW + H_VIEW, FB_W, Y_KEYS - Y_VIEW - H_VIEW, FL_BG);   /* the gap over the keys: the intro's plant
                                                   * (cf_splash.c, 4 px lower) left its stem's foot there, and no
                                                   * screen draws it (the owner saw it over the m6 key, 2026-10-19) */
@@ -940,9 +1094,15 @@ static void cf_ui_draw(void)
         fb_rect(0, y0, FB_W, Y_KNOBS - y0, fl_px[(FLH - 1) * FLW + 10]);
         fb_rect(0, y0, FB_W, 1, 55);
         cf_snow(0, y0, FB_W, Y_KNOBS - y0, flo.t, 10, 0x77u);
-    } else {
-        draw_keys();
+    } else if (cu.scr != SCR_FX) {               /* (FX's pictures use the whole space down to the knobs) */
+        int y0 = Y_VIEW + H_VIEW;
+        fb_rect(0, y0, FB_W, Y_KNOBS - y0, FL_BG);
+        fb_rect(0, y0, FB_W, 1, FL_BG3);
+        cf_snow(0, y0, FB_W, Y_KNOBS - y0, flo.t, 10, 0x77u);
     }
+    if (CF_KEYSTRIP)                             /* (3IS: the keyboard picture is off everywhere, the owner's word 2026-10-24:
+                                                  * the wizard says what is played) */
+        draw_keys();
     draw_knobs();
     cf_present();
 }
