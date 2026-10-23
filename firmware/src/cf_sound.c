@@ -58,6 +58,16 @@ static const cf_named_t CF_BASS[] = {
 static const cf_named_t CF_DROP[] = {
     {ENGI_FM6, "TINE EP"}, {ENGI_FM6, "BELL"}, {ENGI_FM6, "DX MARIMBA"}, {ENGI_FM6, "DRAWBARS"},
     {ENGI_FM6, "GLASS PAD"}, {ENGI_FM6, "KALIMBA"}, {ENGI_FM6, "FLUTE"}, {ENGI_FM6, "TUBULAR"},
+    /* 3IS: the near-twins. Sixteen VA pads and strings differed only by a few cutoff and attack numbers, and several FM
+     * sounds repeat each other; one of each family stays, so a turn of PRESETS always lands somewhere new */
+    {ENGI_FM6, "BRASS"}, {ENGI_FM6, "STRINGS"}, {ENGI_FM6, "STEEL DRUM"}, {ENGI_FM6, "DX TINE"},
+    {ENGI_FM6, "BELLS"}, {ENGI_FM6, "SPARKLE PAD"}, {ENGI_FM6, "BLOOM PAD"}, {ENGI_FM6, "WAVE PAD"},
+#if FELUCCA_VA
+    {ENGI_VA, "WARM PAD"}, {ENGI_VA, "ENSEMBLE STR"}, {ENGI_VA, "SOFT AAH"}, {ENGI_VA, "MORPH PAD"},
+    {ENGI_VA, "WIDE STRINGS"}, {ENGI_VA, "CLOUD PAD"}, {ENGI_VA, "BREATH PAD"}, {ENGI_VA, "TAPE STRINGS"},
+    {ENGI_VA, "PWM PAD"}, {ENGI_VA, "SOFT BRASS"}, {ENGI_VA, "VINYL KEYS"}, {ENGI_VA, "HAZE"},
+    {ENGI_VA, "DREAM BELLS"}, {ENGI_VA, "CLAV"}, {ENGI_VA, "HOLLOW"}, {ENGI_VA, "SLOW STRINGS"},
+#endif
 };
 static int cf_named(const cf_named_t *t, uint32_t n, uint32_t e, const char *name)
 {
