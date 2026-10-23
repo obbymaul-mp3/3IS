@@ -10,6 +10,9 @@
 
 /* ------------------------------------------------------------ sizes --- */
 #define NVOICE 16                /* voice slots per part (FM6 plays Dexed's 16; Melodee's voice model) */
+#define TRK_XPN 16u                 /* note-ons kept through an engine switch's fade (voice.c trk_note_on): a pattern's
+                                  * sound coming in at a bar line takes a held chord and the pattern's first chord at
+                                  * once (CoralFlower 0.5; 4 lost notes of a 5-note chord) */
 #define NPOLY 8                  /* the voices of an engine without its own cap (its per-voice state: engines.c eng_state) */
 #define VBUDGET 16               /* the sounding voices of all parts, in units: a voice of an engine capped above NPOLY
                                   * (FM6) takes one, any other two, so the others keep their shared eight. With the
@@ -20,6 +23,11 @@
 #endif
 #define NPART 4                  /* synth parts: tracks 1..4 */
 #define NTRK NPART               /* tracks (the formats and the protocol count these): every track is a part */
+#ifndef CF_NTAIL
+#define CF_NTAIL 0u              /* tracks after the parts that only sound (CoralFlower 0.5: one, the tail, cf_sound.c:
+                                  * an outgoing sound rings out there); no format, protocol, MIDI or sequencer sees them */
+#endif
+#define NSND (NTRK + CF_NTAIL)   /* the tracks that render */
 #define NSTEP 64
 #define HALF_FRAMES 128          /* I2S half buffer: 2.9 ms at 44.1 kHz (a key waits 0..1 half, then plays 1 half later) */
 #ifndef FELUCCA_SLICE
@@ -467,7 +475,7 @@ typedef struct track {
     /* engine switch (voice.c engine_block): the old engine's voices fade out, then it switches */
     uint8_t xf_on, xf;           /* fading; blocks of the fade still to render */
     int16_t pe_old[8];           /* P_E0..P_E7 of the sounding engine: the fade renders with these */
-    uint8_t xp_n, xp_note[4], xp_vel[4];   /* note-ons during the fade, played on the new engine */
+    uint8_t xp_n, xp_note[TRK_XPN], xp_vel[TRK_XPN];   /* note-ons during the fade, played on the new engine */
     /* modulation matrix (mod.c): MIDI performance controllers of the track's channel, 0..127 */
     uint8_t mw, at;              /* CC1 mod wheel, channel aftertouch */
     uint8_t ex_off;              /* 127 - CC11 expression (0: full, the MIDI default) */
@@ -492,7 +500,7 @@ typedef struct {
     int32_t batt_raw;            /* smoothed ADC ch3 (battery divider), 0 = not read yet */
 } song_t;
 
-static track_t trk[NTRK];        /* the instrument: four parts */
+static track_t trk[NSND];        /* the instrument: four parts (and the tail, CF_NTAIL) */
 static song_t song;
 #include "cr_cpu1.h"             /* the second core and the ISR's stage profile (cr_dbg) */
 #define TSEL (&trk[song.sel])    /* the selected track */

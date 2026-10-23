@@ -118,7 +118,7 @@ static int32_t lim_env = LIM_T;
 static uint8_t fx_smooth;
 #if CR_FX
 static volatile uint8_t fx_off;       /* ChoralRoot's FX tap at off (cr_ui.c cu_fx_apply): no part sends into the buses */
-static int32_t fx_sg[NPART][3];       /* each part's send gains as the last block left them (Q15: chorus, delay, reverb):
+static int32_t fx_sg[NPART + CF_NTAIL][3];       /* each part's send gains as the last block left them (Q15: chorus, delay, reverb):
                                        * a new send, FX on / off, a CC is reached as a ramp over the block, not as a step
                                        * in what the delay and the reverb are fed (a click at every detent of Send) */
 #endif
@@ -1238,6 +1238,12 @@ static __attribute__((noinline)) void perf_master(int32_t *out, uint32_t n)
 }
 #endif
 
+#if CF_VLOAD                                            /* (voice.c: each part's time, for its voices' cost) */
+#define MIX_PART(t, n) do { uint32_t vl0_ = VL_NOW(); mix_part(t, n); vl_part(t, VL_NOW() - vl0_); } while (0)
+#else
+#define MIX_PART(t, n) mix_part(t, n)
+#endif
+
 static void mix_block(int32_t *out, uint32_t n)
 {
     uint32_t i;
@@ -1268,9 +1274,15 @@ static void mix_block(int32_t *out, uint32_t n)
     }
 #endif
     for (; i < MIX_NPART; i++)
-        mix_part(&trk[i], n);
+        MIX_PART(&trk[i], n);
     for (; i < NPART; i++)
         mix_part_idle(&trk[i], n);
+#if CF_NTAIL
+    for (i = 0; i < NVOICE && !trk[NTRK].v[i].active; i++)
+        ;
+    if (i < NVOICE)                                     /* the tail, while it rings (CoralFlower: cf_sound.c) */
+        MIX_PART(&trk[NTRK], n);
+#endif
 #if FELUCCA_PERFORM
     if (perf)
         perf_pre(mix_l, mix_r, send_d, send_r, n);

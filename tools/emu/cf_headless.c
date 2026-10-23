@@ -5,12 +5,16 @@
  *
  * dump also counts what went out on MIDI since the start (clock, start, stop, note-ons by channel).
  * Script lines ('#' lines are comments): wait MS | key K down|up (K: 0..26 or a note name such as C4; keyq: the same with
- *   no time after it, for keys pressed at once) | clock BPM MS (MIDI clock in) | midi start|continue|stop | btn NAME (a tap: FX SEL
+ *   no time after it, for keys pressed at once) | clock BPM MS (MIDI clock in) | midi start|continue|stop | mnote NOTE VEL
+ *   (an outside keyboard's note, channel 1; VEL 0 lets it go) | btn NAME (a tap: FX SEL
  * ENV LFO EDIT GLO HOME SAVE ARP SEQ PLAY REC OCT- OCT+) | hold NAME down|up | turn ROLE N (SELECT ALGORITHM PRESETS
  * K1..K4 MASTER) | shot NAME (OUTDIR/NAME.ppm) | dump (the firmware's state) | wav on|off (OUTDIR/out.wav)
  * CF_BOOT_MS (default 1600): how long it runs before the script; a small one lets shots catch the intro.
  * CF_FLASH=PATH: the flash image read before the boot and written after the script (a file that is not there yet:
- * a fresh flash), so a second run sees what the first one saved. */
+ * a fresh flash), so a second run sees what the first one saved.
+ * CF_LOADMODEL=X (macOS): the audio ISR's clock counts the host's instructions as the unit's time, X times the
+ * model's (1.9: the unit as measured), so the firmware's load guard and voice count (voice.c CF_VLOAD) act as on the
+ * unit; perf then also counts the clock's own reads. */
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -18,6 +22,9 @@
 
 extern void web_boot(void);
 extern void web_step(uint32_t n);
+extern void web_perf_reset(void);
+extern void web_perf_print(const char *label);
+extern void web_load_model(uint32_t milli);
 extern void web_buttons(uint32_t m);
 extern void web_keys(uint32_t m);
 extern int web_midi_in(uint32_t pkt);           /* a USB-MIDI packet (a 1-byte message: 0x0F | status << 8) */
@@ -151,6 +158,8 @@ int main(int argc, char **argv)
     }
     if (getenv("CF_RENDER_MS"))                 /* (a device's frame: the keys wait while it draws) */
         emu_render_ms = (uint32_t)atoi(getenv("CF_RENDER_MS"));
+    if (getenv("CF_LOADMODEL"))
+        web_load_model((uint32_t)(atof(getenv("CF_LOADMODEL")) * 1000.0 + 0.5));
     web_boot();
     step(getenv("CF_BOOT_MS") ? (uint32_t)atoi(getenv("CF_BOOT_MS")) : 1600u);   /* (0: the script sees the intro) */
     while (fgets(line, sizeof line, s)) {
@@ -196,6 +205,11 @@ int main(int argc, char **argv)
                 done++;
                 t += 1.0;
             }
+        } else if (!strcmp(cmd, "mnote")) {        /* mnote NOTE VEL: an outside keyboard's note on channel 1 (VEL 0: off) */
+            int nt = atoi(a) & 127, vl = atoi(b) & 127;
+            web_midi_in(vl ? 0x09u | 0x90u << 8 | (uint32_t)nt << 16 | (uint32_t)vl << 24
+                           : 0x08u | 0x80u << 8 | (uint32_t)nt << 16);
+            step(1);
         } else if (!strcmp(cmd, "midi")) {         /* midi start | continue | stop */
             web_midi_in(0x0Fu | (!strcmp(a, "start") ? 0xFAu : !strcmp(a, "continue") ? 0xFBu : 0xFCu) << 8);
             step(1);
@@ -207,6 +221,11 @@ int main(int argc, char **argv)
         } else if (!strcmp(cmd, "shot")) {
             step(40);
             shot(dir, a);
+        } else if (!strcmp(cmd, "perf")) {         /* perf reset | perf LABEL: the audio blocks' cost since the reset */
+            if (!strcmp(a, "reset"))
+                web_perf_reset();
+            else
+                web_perf_print(a);
         } else if (!strcmp(cmd, "dump")) {
             uint32_t on = 0, c;
             web_dump();

@@ -551,16 +551,17 @@ static void cfx_phaser(int32_t *l, int32_t *r, uint32_t n)
 /* ------------------------------------------------------ the power-on sound --- */
 /* the intro's sound (cf_splash.c starts it; GLO > Display > BOOT SND), always the same: a voice of its own, not a part,
  * after the effects (so neither the sounds nor the effects set then change it) and before MASTER. A strum of glass
- * bells: a wide Cmaj9#11 (Lydian: the bright, floating fourth) upward over a soft sub C, faster and louder as it
+ * bells: 3IS's spell: a Dm9 (D F A C E) upward over a soft sub D, ending on a high F sharp (the lift), faster and louder as it
  * rises, echoed once a third of a second later, softer; a second on, a shower down from above. Each bell: two sines
  * 5 cents apart (they beat, slowly), a shimmer of phase modulation at 3.5 times its pitch gone in a tenth of a second
  * (glass), coming in 40 cents flat and sliding up (the bloom), 6 ms in, a long decay (0.74 s). */
 static const struct { uint16_t ms; uint8_t note, vel; int8_t pan; } CF_BOOT[] = {
-    {0, 36, 90, 0},                                              /* (the sub: a plain sine) */
-    {0, 48, 50, -6}, {75, 55, 56, 6}, {140, 62, 62, -10}, {198, 64, 68, 10}, {250, 71, 74, -14}, {296, 78, 80, 14},
-    {338, 81, 86, -18}, {376, 86, 92, 18}, {411, 91, 98, 0},
-    {420, 62, 26, 16}, {480, 71, 30, -16}, {540, 78, 34, 18}, {590, 86, 38, -18},          /* (the echo) */
-    {1050, 98, 40, 12}, {1105, 93, 44, -12}, {1155, 90, 48, 9}, {1200, 83, 52, -9}, {1242, 76, 56, 4},
+    {0, 38, 95, 0},                                              /* (the sub: a plain sine, D) */
+    {0, 50, 50, -6}, {70, 57, 56, 6}, {130, 62, 62, -10}, {185, 65, 68, 10}, {235, 69, 74, -14}, {280, 72, 80, 14},
+    {320, 76, 86, -18}, {355, 81, 92, 18}, {385, 86, 98, 0},   /* (3IS: the wizard's spell, a D minor 9 climbing) */
+    {400, 57, 26, 16}, {455, 65, 30, -16}, {510, 72, 34, 18}, {565, 81, 38, -18},          /* (the echo) */
+    {1000, 98, 40, 12}, {1050, 93, 44, -12}, {1100, 89, 48, 9}, {1150, 86, 52, -9}, {1200, 81, 56, 4},
+    {1280, 90, 44, 0},                                                                       /* (the snow, and a last F sharp: the lift) */
 };
 #define CF_BOOT_N ((uint32_t)(sizeof CF_BOOT / sizeof CF_BOOT[0]))
 static const uint32_t CF_BOOT_INC[12] = {796254u, 843601u, 893765u, 946911u, 1003217u, 1062871u, 1126073u, 1193033u,
@@ -648,11 +649,19 @@ static void cf_boot_mix(int32_t *l, int32_t *r, uint32_t n)
 static int cf_boot_yield(void)
 {
     if (!cfb.on)
-        return 0;
+        return voice_tail_yield();               /* (then the tail ringing out: CF_NTAIL, voice.c) */
     cfb.yield = 1;
     return 1;
 }
 #define SHED_FIRST() cf_boot_yield()
+/* voice.c VOICE_NEW_NOTE: a note starts while the power-on sound rings: it gives way at once. It takes about half the
+ * core at its start, and a chord beside it took the half past the guard's line: the guard let it go only two halves
+ * later and, a half after that, still cut a note of the chord (rc3, the emulator's CF_LOADMODEL) */
+static void cf_boot_note(void)
+{
+    if (cfb.on)
+        cfb.yield = 1;
+}
 
 static void cf_fx_chain(int32_t *l, int32_t *r, uint32_t n)
 {
@@ -682,7 +691,15 @@ static void cf_fx_chain(int32_t *l, int32_t *r, uint32_t n)
         default: break;
         }
     }
+#if CF_VLOAD
+    {
+        uint32_t vl0 = VL_NOW();
+        cf_boot_mix(l, r, n);                    /* (the power-on sound: after the effects, before MASTER) */
+        vl_aside_ticks += VL_NOW() - vl0;        /* (voice.c: it gives way, the parts' voices do not wait for it) */
+    }
+#else
     cf_boot_mix(l, r, n);                        /* (the power-on sound: after the effects, before MASTER) */
+#endif
     {
         int32_t pk = 0;
         for (i = 0; i < n; i++) {

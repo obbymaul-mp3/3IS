@@ -230,6 +230,7 @@ void emu_fw_idle(void)                            /* main.c: the input scan whil
     fm1_irq_on();
 }
 
+static uint32_t emu_model_over85, emu_model_over100, emu_model_max;   /* CF_LOADMODEL, since the last dump */
 void emu_fw_audio(int16_t *out, uint32_t frames)  /* the ALNK0 ISR, one half buffer per EMU_BLOCK */
 {
     uint32_t f, i;
@@ -251,7 +252,21 @@ void emu_fw_audio(int16_t *out, uint32_t frames)  /* the ALNK0 ISR, one half buf
             continue;
         }
         emu_half ^= 1u;
+        if (emu_model_instr) {                    /* (CF_LOADMODEL: the half's clock, emu_hal_fw.h) */
+            emu_model_t0 += HALF_FRAMES * 1000000u / 44100u;
+            emu_model_i0 = emu_model_instr();
+            emu_model_n = 0;
+            emu_model_calls++;
+        }
+        emu_in_audio = 1;
         fm1_alnk0_irq();
+        emu_in_audio = 0;
+        if (emu_model_instr) {                    /* (the halves the unit would have rendered too slowly: dump) */
+            uint32_t us = felucca_dbg.last_us;
+            emu_model_over85 += us * 100u > (HALF_FRAMES * 1000000u / 44100u) * 85u;
+            emu_model_over100 += us > HALF_FRAMES * 1000000u / 44100u;
+            emu_model_max = us > emu_model_max ? us : emu_model_max;
+        }
         h = &abuf[emu_half * HALF_WORDS];
         fm1_irq_on();
         for (i = 0; i < HALF_WORDS; i++) {        /* 24-bit (Q15 << OUT_SHIFT) -> Q15 = 0 dBFS */
@@ -306,7 +321,8 @@ void emu_fw_dump(void)
     printf("\n");
     printf("  screen %s  algo %u quantize %u key %u scale %u octave %d glide %u\n", SCR_NAME[cu.scr],
            (unsigned)cs.chord.algo, (unsigned)cs.chord.quantize, (unsigned)cs.chord.tonic, (unsigned)cs.chord.scale,
-           (int)cs.chord.octave, (unsigned)cs.glide_ms);
+           (int)cs.chord.octave,
+           (unsigned)(trk[0].p[P_GLIDE] > 0 ? cfe_glide_ms(trk[0].p[P_GLIDE]) : 0u));   /* (GLIDE: the chord sound's, 0.5) */
     cf_chord_name(cf_sn.out.root_pc, cf_sn.out.mask, cf_sn.out.bass_pc, &cu_spell, nm);
     printf("  chord: %s sounding %u single %u buttons %03X notes", nm, (unsigned)cf_sn.out.sounding,
            (unsigned)cf_sn.out.single, (unsigned)cf_sn.out.buttons);
@@ -345,6 +361,37 @@ void emu_fw_dump(void)
                 printf(" %d", (int)trk[i].v[k].pitch_cur);
         printf("\n");
     }
+#if CF_NTAIL
+    {                                            /* the tail (cf_sound.c): whose sound rings out there, its voices */
+        uint32_t n = 0, k, e;
+        int32_t pk = trk[NTRK].peak;
+        for (k = 0; k < NVOICE; k++)
+            n += trk[NTRK].v[k].active;
+        e = trk[NTRK].engine;
+        printf("  tail: of part %u, engine %u voices %u peak %d notes:", (unsigned)cf_tail_part, (unsigned)e, (unsigned)n,
+               (int)pk);
+        for (k = 0; k < NVOICE; k++)
+            if (trk[NTRK].v[k].active)
+                printf(" %u(st%u env%d)", (unsigned)trk[NTRK].v[k].note, (unsigned)trk[NTRK].v[k].stage,
+                       (int)trk[NTRK].v[k].env_out);
+        printf("\n");
+    }
+#endif
+    if (emu_model_instr) {                       /* (CF_LOADMODEL: the unit's load as the firmware measured it) */
+        printf("  load: max %u us of %u, halves over 85 %% %u, over 100 %% %u, guard sheds %u, kills %u, steals %u;"
+               " voice cost us", (unsigned)emu_model_max, (unsigned)(HALF_FRAMES * 1000000u / 44100u),
+               (unsigned)emu_model_over85, (unsigned)emu_model_over100, (unsigned)shed_count, (unsigned)voice_kills,
+               (unsigned)voice_steals);
+#if CF_VLOAD
+        for (i = 0; i < NSND; i++)
+            printf(" %u", (unsigned)vl_cost_of(&trk[i]));
+        printf("; caps");
+        for (i = 0; i < NPART; i++)
+            printf(" %u", (unsigned)trk_nvoice(&trk[i]));
+#endif
+        printf("\n");
+        emu_model_over85 = emu_model_over100 = emu_model_max = 0;
+    }
     printf("  plant: %s, segments %u, tiles sent %u\n", flo.species ? "coral" : "plant", (unsigned)flo.nseg,
            (unsigned)fb_tiles_sent);
     printf("  chord: root %u, notes", (unsigned)cf_sn.out.root_note);
@@ -362,9 +409,47 @@ void emu_fw_dump(void)
                (unsigned)(sqk.song ? squ.slot : sqk.last));
         for (k = 0; k < 3u; k++) {
             cfk_build(k, &cfk_rec);
-            printf(" %s %s %08X%s", k == 0 ? "chord" : k == 1 ? "bass" : "layer", cfk_rec.edited ? "edited" : "-",
-                   (unsigned)cfk_rec.check, cfk_rec.check == cfk_saved[k] ? "" : " (not written)");
+            printf(" %s %s %c %08X", k == 0 ? "chord" : k == 1 ? "bass" : "layer", cfk_rec.edited ? "edited" : "-",
+                   cfk_own[k] ? (char)('A' + cfk_own[k] - 1) : 'H', (unsigned)cfk_rec.check);
         }
+        printf(" (owner H: HOME), chord attack %d", cf_env_get(0, 0));
+        printf("\n  pattern sounds (current %c):", sq_cur_pat() < SQ_NPAT ? (char)('A' + sq_cur_pat()) : '-');
+        for (k = 0; k < SQ_NPAT; k++) {
+            uint32_t t;
+            for (t = 0; t < 3u; t++)
+                if (cfps.r[k][t].own)
+                    printf(" %c.%s=%s", (char)('A' + k), t == 0 ? "chords" : t == 1 ? "bass" : "layer", sq_snd_name(k, t));
+        }
+        {                                         /* the open pattern's frame and the framed track's chords */
+            const sq_pat_t *p = sq_cur();
+            uint32_t e;
+            printf("\n  sq: pat %u trk %u bar %u step %u nofr %u mv %u edit %u playing %u, track:", (unsigned)squ.pat,
+                   (unsigned)squ.trk, (unsigned)squ.bar, (unsigned)squ.step, (unsigned)squ.nofr, (unsigned)squ.mv,
+                   squ.edit_down ? 1u : 0u, (unsigned)sqp.on);
+            for (e = 0; squ.pat < SQ_NPAT && e < p->nev; e++)
+                if (p->ev[e].trk == squ.trk)
+                    printf(" %u.%u(%u)", (unsigned)p->ev[e].bar, (unsigned)p->ev[e].pos, (unsigned)p->ev[e].root);
+        }
+        {                                         /* (rc2 cost study: part 0's VA patch, what a voice renders) */
+            const int8_t *vp = va_patch[0];
+            uint32_t k;
+            printf("\n  va0: lvl");
+            for (k = 0; k < 4u; k++)
+                printf(" %d", vp[VA_OSC(k, VO_LEVEL)]);
+            printf(" wave");
+            for (k = 0; k < 4u; k++)
+                printf(" %d", vp[VA_OSC(k, VO_WAVE)]);
+            printf(" mode");
+            for (k = 0; k < 4u; k++)
+                printf(" %d", vp[VA_OMODE0 + k]);
+            printf(" sync %d ring %d ftype %d spread %d uspread %d", vp[VA_SYNC2], vp[VA_RING4], vp[VA_FTYPE],
+                   vp[VA_FSPREAD], vp[VA_USPREAD]);
+        }
+        printf("%s\n  tweak stores:", cfps_check() == cfps_saved ? "" : " (not written)");
+        for (k = 0; k < CFK_NST; k++)
+            if (cfk_st[k].edited)
+                printf(" %u:%s%c.%u=%s", (unsigned)k, cfk_st[k].pat1 ? "" : "HOME", cfk_st[k].pat1 ? (char)('A' + cfk_st[k].pat1 - 1) : ' ',
+                       (unsigned)cfk_st[k].part, cfk_st[k].name);
         printf("\n");
     }
     {

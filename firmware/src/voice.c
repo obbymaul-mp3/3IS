@@ -13,6 +13,10 @@
  * over one block (stage 4: the envelope goes to 0, the block's amplitude ramp
  * declicks it); one of the part's own is restarted in place, as before. Extra UNISON
  * voices only start when there is room. */
+#ifndef TRK_GLIDE
+#define TRK_GLIDE(t) ((t)->p[P_GLIDE])               /* a part's portamento (CoralFlower: the LAYER's alone; the chords'
+                                                      * glide is its player's, cf_play.c) */
+#endif
 static uint32_t vage;                                   /* voice ages: one clock for every part */
 static int32_t lfo_wave(track_t *t, uint32_t ph)
 {
@@ -58,11 +62,76 @@ static void track_lfo_tick(track_t *t)
     }
 }
 
+#ifndef CF_VLOAD
+#define CF_VLOAD 0
+#endif
+#if CF_VLOAD
+/* CoralFlower 0.5-rc3: a VA sound sounds as many voices as the core has time for, no fixed cap (the owner, 2026-10-22:
+ * "пока хватает производительности — не ограничивать"; rc2 had a cap per patch). audio.c measures each half (2.9 ms):
+ * its render time (vl_half), and fx.c each part's time over its voices (vl_part), so a voice's cost is the unit's own
+ * (until a sound has been measured: its estimate, eng_va.c va_cost). A part's cap for the next half: the voices of that
+ * cost that fit under 82 % beside what the other parts took (the tail and the power-on sound not counted: they give way
+ * by themselves, voice_tail_yield, cf_fx.c cf_boot_yield). Fewer parts playing (no pattern, no LAYER): more voices. A
+ * new note past the cap takes a voice as before (voice_alloc: the oldest released one, after its fade; then a held one,
+ * the chord's fifth first, the note the ear misses least), so a chord change is one voice for one, no block with both.
+ * A part over its cap (others started playing) lets its oldest released voice go, one a half. 82: the chord changes'
+ * peaks stay under the guard's 85 % (audio.c shed_voice; the emulator's CF_LOADMODEL, rc3: 80 left TAPE STRINGS a voice
+ * short of rc2's six, 85 went over the line more often in a pattern) */
+#define VL_HALF_US (HALF_FRAMES * 1000000u / FS)
+#ifndef VL_TARGET
+#define VL_TARGET (VL_HALF_US * 82u / 100u)
+#endif
+#define VL_MIN 3u                                       /* (a triad always: the guard sees to the rest) */
+#define VL_COST_DEF 200u                                /* us a half: a voice of an engine with no estimate */
+static uint32_t vl_ticks[NSND];                         /* this half's render time per part, ticks (fx.c) */
+static uint16_t vl_vblk[NSND];                          /* .. and its voices, summed over the half's blocks */
+static uint16_t vl_cost[NSND];                          /* a voice's time over a half, us, as measured */
+static uint16_t vl_mark[NSND];                          /* .. for this sound (vl_mark_of; another: not measured yet) */
+static uint16_t vl_us[NSND];                            /* the last half's time per part, us */
+static uint16_t vl_all;                                 /* .. and the whole half's */
+static uint32_t vl_aside_ticks;                         /* this half's time of a sound that gives way by itself
+                                                         * (CoralFlower's power-on sound, cf_fx.c cf_boot_yield) */
+static uint16_t vl_aside;                               /* .. the last half's, us: not counted against the parts */
+
+static uint32_t vl_mark_of(const track_t *t)
+{
+    return (uint32_t)t->engine << 8 | (t->engine == ENGI_VA ? va_cost(t) & 255u : 0u);
+}
+static uint32_t vl_cost_of(const track_t *t)
+{
+    uint32_t p = (uint32_t)(t - trk);
+    if (vl_cost[p] && vl_mark[p] == vl_mark_of(t))
+        return vl_cost[p];
+    return t->engine == ENGI_VA ? va_cost(t) * 11u / 4u : VL_COST_DEF;   /* (twentieths of a % of the model's block,
+                                                         * the unit ~1.9x the model: 2902 us x 1.9 / 2000) */
+}
+
+/* a VA part's voices for now: what fits beside the others' last half */
+static uint32_t vl_cap(const track_t *t)
+{
+    uint32_t p = (uint32_t)(t - trk), other, k;
+    if (p >= NPART)
+        return VA_POLY;                                 /* (the tail: what it took along) */
+    other = vl_all - vl_us[p] - vl_aside;
+#if CF_NTAIL
+    other -= vl_us[NTRK];
+#endif
+    other = other > vl_all ? 0u : other;                /* (wrapped: the parts' sum past the half's) */
+    k = other < VL_TARGET ? (VL_TARGET - other) / vl_cost_of(t) : 0u;
+    return k < VL_MIN ? VL_MIN : k > VA_POLY ? VA_POLY : k;
+}
+#endif
+
 /* voices the engine may use (POLY and UNISON): its cap, else NPOLY */
 static uint32_t trk_nvoice(const track_t *t)
 {
     const engine_t *e = ENGINES[t->engine];
-    uint32_t c = e->cap ? e->cap(t) : e->poly;
+    uint32_t c;
+#if CF_VLOAD
+    if (t->engine == ENGI_VA)
+        return vl_cap(t);
+#endif
+    c = e->cap ? e->cap(t) : e->poly;
     return !c ? NPOLY : c < NVOICE ? c : NVOICE;
 }
 
@@ -90,7 +159,8 @@ static uint32_t voices_busy_of(const track_t *self)        /* budget units of th
                                                          * parts that share self's budget */
 {
     uint32_t p, i, n, u = 0, sp = (uint32_t)(self - trk);
-    for (p = 0; p < NPART; p++) {
+    for (p = 0; p < NPART; p++) {                       /* (not the tail's, CF_NTAIL: the core's load rules it, not the
+                                                         * budget: voice_tail_yield) */
         if (!VB_SAME(p, sp))
             continue;
         for (i = n = 0; i < NVOICE; i++)
@@ -247,11 +317,105 @@ static void vsq_drop(track_t *t, uint32_t note)            /* note 128: all */
     vsq[p].n = (uint8_t)k;
 }
 
+/* CoralFlower's tail (core.h CF_NTAIL, cf_sound.c): an outgoing sound ringing out goes first when the core is tight
+ * (the owner's "Только программа", 0.5): its oldest voice fades over a block. 1: one went */
+static int voice_tail_yield(void)
+{
+#if CF_NTAIL
+    track_t *t = &trk[NTRK];
+    uint32_t i, best = NVOICE;
+    for (i = 0; i < NVOICE; i++)
+        if (t->v[i].active && t->v[i].stage != 4u && (best == NVOICE || t->v[i].age < t->v[best].age))
+            best = i;
+    if (best < NVOICE) {
+        voice_kill(&t->v[best]);
+        return 1;
+    }
+#endif
+    return 0;
+}
+
+#if CF_VLOAD
+/* fx.c, after a part's render: its time and the voices it rendered */
+static void vl_part(const track_t *t, uint32_t ticks)
+{
+    uint32_t p = (uint32_t)(t - trk), i, n = 0;
+    for (i = 0; i < NVOICE; i++)
+        n += t->v[i].active;
+    vl_ticks[p] += ticks;
+    vl_vblk[p] = (uint16_t)(vl_vblk[p] + n);
+}
+
+/* audio.c, the half done: us its render time. A part's voice cost: fast up, slowly down. A VA part over its cap
+ * lets its oldest released voice go */
+static void vl_half(uint32_t us, uint32_t ticks_per_us)
+{
+    uint32_t p, i, n;
+    for (p = 0; p < NSND; p++) {
+        uint32_t t_us = vl_ticks[p] / ticks_per_us;
+        vl_us[p] = (uint16_t)(t_us > 0xFFFFu ? 0xFFFFu : t_us);
+        if (vl_vblk[p] && t_us) {
+            uint32_t c = t_us * (HALF_FRAMES / CTL) / vl_vblk[p], m = vl_mark_of(&trk[p]);
+            c = c > 0xFFFFu ? 0xFFFFu : c ? c : 1u;
+            if (vl_mark[p] != m || c > vl_cost[p])
+                vl_cost[p] = (uint16_t)c;
+            else
+                vl_cost[p] = (uint16_t)(vl_cost[p] - (vl_cost[p] - c) / 8u);
+            vl_mark[p] = (uint16_t)m;
+        }
+        vl_ticks[p] = 0;
+        vl_vblk[p] = 0;
+    }
+    vl_all = (uint16_t)(us > 0xFFFFu ? 0xFFFFu : us);
+    vl_aside = (uint16_t)(vl_aside_ticks / ticks_per_us > 0xFFFFu ? 0xFFFFu : vl_aside_ticks / ticks_per_us);
+    vl_aside_ticks = 0;
+    for (p = 0; p < NPART; p++) {
+        track_t *t = &trk[p];
+        voice_t *old = 0;
+        if (t->engine != ENGI_VA)
+            continue;
+        for (i = n = 0; i < NVOICE; i++) {
+            voice_t *v = &t->v[i];
+            if (!v->active || v->stage == 4u)
+                continue;
+            n++;
+            if (!v->gate && (!old || v->age < old->age))
+                old = v;
+        }
+        if (old && n > vl_cap(t))
+            voice_kill(old);
+    }
+}
+
+/* the held voice a fifth above the chord's lowest note (its fifth), not fading; NVOICE: none. The lowest of the held
+ * notes, `note` (one coming, 128: none) and the part's notes waiting for a fade (vsq): a chord change brings its
+ * bass a block late at times */
+static uint32_t vl_fifth(const track_t *t, uint32_t np, uint32_t note)
+{
+    uint32_t i, p = (uint32_t)(t - trk), low = note;
+    for (i = 0; i < np; i++)
+        if (t->v[i].gate && t->v[i].stage != 4u && t->v[i].note < low)
+            low = t->v[i].note;
+    for (i = 0; p < NPART && i < vsq[p].n; i++)
+        if (vsq[p].note[i] < low)
+            low = vsq[p].note[i];
+    for (i = 0; low < 128u && i < np; i++)
+        if (t->v[i].gate && t->v[i].stage != 4u && t->v[i].note > low && (t->v[i].note - low) % 12u == 7u)
+            return i;
+    return NVOICE;
+}
+#endif
+
 static voice_t *voice_alloc(track_t *t, uint32_t note, uint32_t vel)
 {
     const engine_t *e = ENGINES[t->engine];
     uint32_t i, np = trk_nvoice(t), best = np, low = np, nfree = 0;
     int32_t bd = 0x7FFFFFFF;
+    if (voice_tight)
+        voice_tail_yield();                             /* (a new note on a tight core: the tail's oldest goes) */
+#ifdef VOICE_NEW_NOTE
+    VOICE_NEW_NOTE();                                   /* (CoralFlower: the power-on sound gives way, cf_fx.c) */
+#endif
     if (voice_fade_steal) {                             /* already waiting for a fade: its velocity, once */
         uint32_t p = (uint32_t)(t - trk);
         for (i = 0; p < NPART && i < vsq[p].n; i++)
@@ -302,7 +466,7 @@ static voice_t *voice_alloc(track_t *t, uint32_t note, uint32_t vel)
         for (i = 0; i < np && best == np; i++)
             if (t->v[i].active && !t->v[i].gate && t->v[i].stage != 4u)
                 goto steal;
-    if (t->p[P_ALLOC] || t->p[P_GLIDE]) {
+    if (t->p[P_ALLOC] || TRK_GLIDE(t)) {
         for (i = 0; i < np; i++) {
             int32_t d = t->v[i].pitch_cur - (int32_t)note * 16;
             if (t->v[i].active)
@@ -332,6 +496,10 @@ steal:
     for (i = 0; i < np; i++)                             /* oldest released (not one fading out for another part) */
         if (!t->v[i].gate && t->v[i].stage != 4u && (best == np || t->v[i].age < t->v[best].age))
             best = i;
+#if CF_VLOAD
+    if (best == np && (i = vl_fifth(t, np, note)) < np)   /* (CoralFlower: a chord gives up its fifth first) */
+        best = i;
+#endif
     if (best == np)
         for (i = 0; i < np; i++)                         /* oldest held, not the bass */
             if (i != low && (!voice_fade_steal || t->v[i].stage != 4u) && (best == np || t->v[i].age < t->v[best].age))
@@ -476,7 +644,7 @@ static void trk_note_on(track_t *t, uint32_t note, uint32_t vel)
     if (t->xf_on || t->eng_req != t->engine) {          /* engine switch under way: after the fade */
         for (i = 0; i < t->xp_n && t->xp_note[i] != note; i++)
             ;
-        if (i == t->xp_n && t->xp_n < 4u)
+        if (i == t->xp_n && t->xp_n < TRK_XPN)
             t->xp_n++;
         i = i < t->xp_n ? i : t->xp_n - 1u;             /* (full: the last one is replaced) */
         t->xp_note[i] = (uint8_t)note;
@@ -497,7 +665,7 @@ static void trk_note_on(track_t *t, uint32_t note, uint32_t vel)
         if (!v)
             return;                                     /* (voice_fade_steal: it starts next block) */
         v->fine = 0;
-        voice_start(t, v, note, vel, t->p[P_GLIDE] != 0 && !ENGINES[t->engine]->oneshot);
+        voice_start(t, v, note, vel, TRK_GLIDE(t) != 0 && !ENGINES[t->engine]->oneshot);
         return;
     }
     {
@@ -512,9 +680,9 @@ static void trk_note_on(track_t *t, uint32_t note, uint32_t vel)
         if (sounding && want == t->mono_note)
             return;                                     /* LOW / HIGH priority: this key does not win */
         if (mode == V_MONO)                             /* MONO: always retrigger, glide when GLIDE is set */
-            mono_play(t, want, vel, 1, t->p[P_GLIDE] != 0 || t->slide_glide);
+            mono_play(t, want, vel, 1, TRK_GLIDE(t) != 0 || t->slide_glide);
         else                                            /* LEGATO / UNISON: glide only between held notes */
-            mono_play(t, want, vel, !sounding, sounding && (t->p[P_GLIDE] != 0 || t->slide_glide));
+            mono_play(t, want, vel, !sounding, sounding && (TRK_GLIDE(t) != 0 || t->slide_glide));
     }
 }
 
@@ -534,7 +702,7 @@ static void trk_note_off(track_t *t, uint32_t note)
         if (t->mono_note == note) {
             uint32_t next = mono_pick(t);
             if (next) {                                 /* fall back to a held note, legato */
-                mono_play(t, next, t->v[0].vel, 0, t->p[P_GLIDE] != 0);
+                mono_play(t, next, t->v[0].vel, 0, TRK_GLIDE(t) != 0);
             } else {
                 for (i = 0; i < nv; i++)
                     if (t->v[i].gate) {
@@ -729,7 +897,7 @@ static int32_t env_tick(track_t *t, voice_t *v)
  * also renders a stereo side into part_side: part_side_on = 1 when a voice added to it (fx.c mix_part plays the
  * part as mid - side / mid + side), else the part is mono as before */
 /* Channel bend is live performance state, outside projects/presets. Q8 semitones. */
-static int32_t midi_bend_q8[NTRK], midi_bend_target[NTRK];
+static int32_t midi_bend_q8[NSND], midi_bend_target[NSND];
 static int32_t part_side[CTL];
 static uint8_t part_side_on;
 /* side / side_on: the part's stereo side (part_side, or core 1's own: fx.c); lfo_pre: 0 = tick the LFO here, else the

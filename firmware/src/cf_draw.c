@@ -273,6 +273,10 @@ static void cf_snow(int x0, int y0, int w, int h, uint32_t t, int n, uint32_t se
 
 static void draw_plant(int y0)
 {
+    if (flo.chord.n && flo.chord.root != cf_hat_pc && flo.chord.root < 12u) {   /* the hat takes the root's colour */
+        cf_hat_pc = flo.chord.root;
+        cf_palette_build();
+    }
     fb_blit2x(0, y0, fl_px, FLW, FLH);
     cf_snow(0, y0, 2 * FLW, 2 * FLH, flo.t, 36, 0x3151u);
 }
