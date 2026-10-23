@@ -69,6 +69,7 @@ static int cf_intro_draw(uint32_t dt)
     cf_intro_t += dt ? (dt > 40u ? 40u : dt) : 1u;
     if (cf_intro_t >= CF_SPLASH_MS || cu.idle_ms < cf_intro_t / 2u) {
         cf_intro_on = 0;
+        flora_event(&flo, FL_EV_SPIN);
         flo.bloom = 0;                           /* from the first chord on, the colours follow the root */
         fb_full = 1;
         return 0;

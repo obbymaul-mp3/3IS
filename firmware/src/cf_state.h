@@ -232,6 +232,7 @@ static uint32_t cf_panel_fix(uint32_t c, int colour)
 }
 #endif
 
+static uint8_t cf_hat_pc;   /* the root whose colours the hat wears now */
 static void cf_palette_build(void)
 {
     uint32_t i;
@@ -244,6 +245,8 @@ static void cf_palette_build(void)
     }
     for (i = 0; i < 8u; i++)
         cf_pal[56 + i] = fl_back_rgb[i];
+    for (i = 0; i < 4u; i++)
+        cf_pal[60 + i] = fl_hat_rgb[cf_hat_pc % 12u][i];
 #if !defined CF_EMU && !defined CF_PANEL_PLAIN
     for (i = 0; i < 64u; i++)
         cf_pal[i] = cf_panel_fix(cf_pal[i], i >= FL_RAMP0);

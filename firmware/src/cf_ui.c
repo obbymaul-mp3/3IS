@@ -1617,6 +1617,14 @@ static void cf_feed_plant(uint32_t dt)
     flora_set_species(&flo, cs.chord.algo >= CF_ALG_SIDE ? FL_SP_CORAL : FL_SP_PLANT);
     flora_set_key(&flo, cs.chord.tonic);
     flo.backdrop = cs.backdrop;
+    {   /* the wizard spins at the big moments: HOLD on, the sequencer starting */
+        static uint8_t last_hold, last_sq;
+        uint8_t h = (uint8_t)(cf_sn.out.hold != 0), q = (uint8_t)(cf_sn.sq_on != 0);
+        if ((h && !last_hold) || (q && !last_sq))
+            flora_event(&flo, FL_EV_SPIN);
+        last_hold = h;
+        last_sq = q;
+    }
     /* what the flower shows: the keys' chord while they sound, else the sequencer's CHORDS track's while it plays,
      * as if played by hand (0.5, the owner: "то, что играется в секвенсоре я бы хотел, чтобы на главной
      * отображалось на цветочке"), else nothing */

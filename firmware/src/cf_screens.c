@@ -192,14 +192,52 @@ static void draw_fx(void)
 }
 
 /* ------------------------------------------------------------------ HOME --- */
+static int spell_diff(const char *a, const char *b)
+{
+    while (*a && *a == *b)
+        a++, b++;
+    return *a != *b;
+}
+
 static void draw_home(void)
 {
     char key[16], k2[8];
     flora_render(&flo, &fl_cv);
     draw_plant(Y_VIEW);
     name_update();
-    if (cu_name[0])
+    if (cu_name[0]) {
+        /* the spell: a new chord's root pops up big beside the wizard, shrinking to its place with sparks */
+        static char spell_last[8];
+        static uint32_t spell_t;
+        char root[8];
+        int n = cu_name_single ? (int)str_len(cu_name) : 1 + (cu_name[0] && (cu_name[1] == '#' || cu_name[1] == 'b'));
+        uint32_t age;
+        str_cpy(root, cu_name, (uint32_t)(n < 4 ? n : 4) + 1u);
+        if (spell_diff(root, spell_last)) {
+            str_cpy(spell_last, root, sizeof spell_last);
+            spell_t = cu.now;
+        }
+        age = cu.now - spell_t;
         draw_chord_name(6, Y_VIEW + 7, cu_name, cu_name_sub, cu_name_single);   /* (C MAJ's caps are at + 7) */
+        if (age < 550u) {
+            char b[12];
+            int w, x, y, i, sc = age < 200u ? 4 : 3;
+            fb_signs(root, b, sizeof b);
+            w = fb_text_w(&CF_FONT_UI, b, sc);
+            x = 200 - w / 2;
+            y = Y_VIEW + 70 - (int)(age / 12u);
+            fb_text_halo(&CF_FONT_UI, x, y, b, age < 300u ? 4 : 53, FL_BG, sc);
+            for (i = 0; i < 6; i++) {               /* sparks that drift up and out */
+                int sx = x + (int)((i * 37u + 11u) % (uint32_t)(w + 24)) - 12, sy = y + (int)((i * 53u) % 40u) - (int)(age / 9u);
+                int r = 1 + (int)((550u - age) / 220u);
+                int k;
+                for (k = -r; k <= r; k++) {
+                    fb_pset(sx + k, sy, 4);
+                    fb_pset(sx, sy + k, 4);
+                }
+            }
+        }
+    }
     /* the key in the corner */
     if (cs.chord.quantize != CF_Q_OFF) {
         kpc(k2, cs.chord.tonic);

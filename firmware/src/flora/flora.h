@@ -106,7 +106,11 @@ typedef struct {
     uint8_t body_ramp;   /* the coral's colour, from the key */
     int16_t cx, cy;      /* canvas position of the base, px */
     uint16_t part_acc;
+    uint32_t spin_t;     /* when the wizard's spin began (ms), 0 = not spinning */
 } flora_t;
+
+#define FL_EV_SPIN 1
+void flora_event(flora_t *f, int kind); /* FL_EV_*: a big moment for the wizard */
 
 void flora_init(flora_t *f, uint32_t seed, int cx, int cy);
 void flora_set_species(flora_t *f, int species);    /* FL_SP_*: the old body withers, the new one grows */
