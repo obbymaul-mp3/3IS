@@ -124,17 +124,15 @@ jobs:
           (cd "$rel" && sha256sum -c SHA256SUMS && zip -q -r LICENSES.zip LICENSES)
           ls -l "$rel"
 
-      - name: Pool report (the largest RAM objects, as annotations)
+      - name: Pool report (the largest RAM objects, as one annotation)
         if: always()
         run: |
           set +e
           OD=$(find -L "$HOME/.jieli" -name '*objdump*' -type f 2>/dev/null | head -1)
-          echo "::notice::objdump: $OD"
-          ls build/*.elf 2>&1 | while IFS= read -r l; do echo "::notice::elf: $l"; done
-          "$OD" -t build/coralflower.elf > /tmp/syms.txt 2>/tmp/syms.err
-          echo "::notice::syms: $(wc -l < /tmp/syms.txt) lines; err: $(head -c 200 /tmp/syms.err)"
-          grep -i 'pool' /tmp/syms.txt | head -3 | while IFS= read -r l; do echo "::notice::sample: ${l:0:200}"; done
-          grep -E '\.pool' /tmp/syms.txt | awk '{print $(NF-1), $NF}' | sort -r | head -40 | while IFS= read -r l; do echo "::notice::pool: $l"; done
+          "$OD" -t build/coralflower.elf > /tmp/syms.txt 2>/dev/null
+          T=$(grep -E '\.pool' /tmp/syms.txt | awk '{print $(NF-1), $NF}' | sort -r | head -45 | awk '{printf "%d %s | ", strtonum("0x"$1), $2}')
+          S=$(grep -E '\.pool' /tmp/syms.txt | awk '{s+=strtonum("0x"$(NF-1))} END{print s}')
+          echo "::notice::POOLSUM $S  $T"
           exit 0
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
