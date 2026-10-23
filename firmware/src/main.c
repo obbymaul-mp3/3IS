@@ -373,11 +373,18 @@ static void fm1_main(void)
         felucca_dbg.stage = BS_LOOP_DRAW;
         ui_leds();
         ui_draw();
+#if FELUCCA_GRAIN
+        grain_poll();                           /* GRAIN's render: a slice every frame whatever the frame cost, and a
+                                                 * slice a turn of the idle loop (eng_grain.c, docs/GRAIN.md) */
+#endif
         felucca_dbg.stage = BS_LOOP_IDLE;
         while (fm1_ms - m < 15u) {                               /* ~60 UI frames/s at most */
             ui_input();
 #if FELUCCA_OTA
             ed_service();                       /* editor replies without waiting for the next frame */
+#endif
+#if FELUCCA_GRAIN
+            grain_poll();
 #endif
         }
     }

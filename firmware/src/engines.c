@@ -2,8 +2,8 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Engine table (order = PRESETS browsing order and the engine numbers of the editor protocol), the
  * factory patterns (SEQ > PATTERNS) and the parts' sounds at power-on. */
-#if (FELUCCA_GRAIN || FELUCCA_SLICE) && !FELUCCA_SAMPLE
-#error "GRAIN and SLICE play the SAMPLE engine's sets: FELUCCA_GRAIN / FELUCCA_SLICE need FELUCCA_SAMPLE"
+#if FELUCCA_SLICE && !FELUCCA_SAMPLE
+#error "SLICE plays the SAMPLE engine's sets: FELUCCA_SLICE needs FELUCCA_SAMPLE"
 #endif
 #include "dsp.c"
 #if FELUCCA_ANALOG
@@ -29,9 +29,6 @@ static inline int32_t pd_cos(uint32_t ph16) { return -sine_i(((ph16 & 0xFFFFu) <
 #include "eng_trio.c"
 #endif
 #include "eng_wheel.c"
-#if FELUCCA_GRAIN
-#include "eng_grain.c"
-#endif
 #if FELUCCA_PHYS
 #include "eng_phys.c"           /* PHYS: DaisySP physical models (phys_dsp.c, MIT; retired on ChoralRoot since 0.18:
                                  * FELUCCA_PHYS 0) */
@@ -155,6 +152,9 @@ static uint32_t step_accents(const step_t *s) { (void)s; return 0; }
 #endif
 #if FELUCCA_VA
 #include "eng_va.c"             /* VA: ChoralRoot's four-oscillator virtual analog (deep pages, its own patch) */
+#if FELUCCA_GRAIN
+#include "eng_grain.c"          /* GRAIN: grains over material it renders itself (ChoralRoot's, grain_src.c) */
+#endif
 #endif
 
 /* the editor protocol, user presets and projects store these indices: append, never reorder */
