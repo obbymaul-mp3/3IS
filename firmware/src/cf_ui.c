@@ -18,6 +18,8 @@ static void cf_message(const char *s);
 static void cf_pop(uint32_t kind, uint32_t ms);
 static int cf_editing_part(void);
 static void cf_edited(uint32_t part);
+static void cf_glide_migrate(void);
+static void ui_snd_heard(uint32_t part);
 static void cf_save_open(void);
 static void cf_save_name_init(void);
 static void snd_num(uint32_t idx, char *b);
@@ -31,7 +33,6 @@ static void cf_send_config(void)                 /* the chord settings -> the au
 {
     fm1_irq_off();
     cfc_shadow = cs.chord;
-    cfp_cfg.glide_ms = cs.glide_ms;
     cfp_cfg.glide_always = cs.glide_always;
     cfp_cfg.vel = cs.vel;
     cfp_cfg.bass_on = cs.bass_on;
@@ -43,10 +44,10 @@ static void cf_send_config(void)                 /* the chord settings -> the au
     cfp_cfg.ch_layer = cs.ch_layer;
     cfp_cfg.ch_drums = cs.ch_drums;
     cfp_cfg.retrig = cs.retrig;
+    cfp_cfg.notes_in = cs.notes_in;
     cfp_cfg.arp_on = sq_keys_arp();              /* (a track open: the keys play as it plays, its own ARP) */
     cfp_cfg.arp = cs.arp;
     cfp_cfg.bpm = cs.bpm;
-    cfp_cfg.loop = cs.loop;
     cfp_cfg.clock_in = cs.clock_in == 1u;
     cfp_cfg.clock_out = cs.clock_in == 2u;
     trk[CF_PART_BASS].p[P_LEVEL] = cs.bass_level;
@@ -180,12 +181,12 @@ static void ui_knob_info(int k, cf_knob_t *o)
             o->dis = cs.chord.quantize == CF_Q_OFF;
             break;
         default:
-            kfmt(o->name, 12, "GLIDE");
-            if (cs.glide_ms)
-                kint(o->val, cs.glide_ms, "ms");
+            kfmt(o->name, 12, "GLIDE");          /* (the chord sound's own, 0.5: cf_play.c cfp_glide_g) */
+            if (trk[CF_PART_CHORD].p[P_GLIDE] > 0)
+                kint(o->val, (int)cfe_glide_ms(trk[CF_PART_CHORD].p[P_GLIDE]), "ms");
             else
                 kfmt(o->val, 14, "Off");
-            o->bar = (int16_t)(cs.glide_ms * 255 / 2000);
+            o->bar = (int16_t)(clampi(trk[CF_PART_CHORD].p[P_GLIDE], 0, 127) * 255 / 127);
             break;
         }
         break;
@@ -194,7 +195,7 @@ static void ui_knob_info(int k, cf_knob_t *o)
         if (cf_is_off(&cs.chord, cu.sel_btn)) {
             if (k == 0) {
                 kfmt(o->name, 12, "BUTTON");
-                kfmt(o->val, 14, "Off");
+                kfmt(o->val, 14, "Hold");
             }
             return;
         }
@@ -334,6 +335,11 @@ static void ui_knob_info(int k, cf_knob_t *o)
                 kfmt(o->name, 12, "CLOCK");
                 kfmt(o->val, 14, cs.clock_in == 2u ? "Out" : !cs.clock_in ? "Off" : cf_sn.ext_clock ? "In: lock" : "In");
             }
+            if (k == 2) {                        /* an outside keyboard's notes (0.5): the FM-1's keys, roots, Direct */
+                static const char *const NI[CF_NI_N] = {"FM-1 keys", "Roots", "Direct"};
+                kfmt(o->name, 12, "NOTES IN");
+                kfmt(o->val, 14, NI[cs.notes_in % CF_NI_N]);
+            }
             break;
         case 2: /* Channels */
             if (k == 0) { kfmt(o->name, 12, "CHORD CH"); kint(o->val, cs.ch_chord + 1, 0); }
@@ -390,14 +396,23 @@ static void ui_knob_turn(int k, int d)
                                                   * owner, 2026-10-20, after a reboot: "key и scale заблокировались") */
             cf_message(CF_MSG_QOFF);
         else if (k == 3) {
-            int g = cs.glide_ms;          /* 0, then 5 ms steps to 50, 10 to 200, 25 to 500, 100 to 2000 */
-            int step = g < 50 ? 5 : g < 200 ? 10 : g < 500 ? 25 : 100;
-            if (d < 0 && g <= 50)
-                step = 5;
-            g = clampi(g + d * step, 0, 2000);
-            if (g > 0 && g < 5)
-                g = d > 0 ? 5 : 0;
-            cs.glide_ms = (uint16_t)g;
+            /* GLIDE: the chord sound's (0.5, the owner: "Если переключается инструмент, глайд переключается на тот
+             * что был у другого инструмента"): an edit of the sound, kept as the others are (a pattern's own sound:
+             * in the pattern; SAVE) */
+            /* steps of about a quarter more each: Off, 6, 13, 23, 33, 44, 57, 71, 87, 105, 131, 160, 192, 236, 285,
+             * 349, 420, 510, 625, 768, 944, 1158, 1463 ms (voice.c's TIME: 1 + g^2 / 8 control blocks) */
+            static const uint8_t GS[] = {0, 8, 12, 16, 19, 22, 25, 28, 31, 34, 38, 42, 46, 51, 56, 62, 68, 75, 83, 92,
+                                         102, 113, 127};
+            int g = trk[CF_PART_CHORD].p[P_GLIDE], i = 0;
+            while (i + 1 < (int)NELEM(GS) && GS[i + 1] <= g)
+                i++;
+            if (d < 0 && GS[i] < g)
+                i++;                             /* (a value between two steps: down goes to the lower) */
+            g = GS[clampi(i + d, 0, (int)NELEM(GS) - 1)];
+            fm1_irq_off();
+            trk[CF_PART_CHORD].p[P_GLIDE] = (int16_t)g;
+            fm1_irq_on();
+            cf_edited(CF_PART_CHORD);
         }
         cu_spell_update();
         cf_send_config();
@@ -529,6 +544,8 @@ static void ui_knob_turn(int k, int d)
                 cs.midi_out = (uint8_t)(d > 0);
             if (k == 1)                          /* Off, In, Out */
                 cs.clock_in = (uint8_t)clampi(cs.clock_in + (d > 0 ? 1 : -1), 0, 2);
+            if (k == 2)                          /* FM-1 keys, Roots, Direct */
+                cs.notes_in = (uint8_t)clampi(cs.notes_in + (d > 0 ? 1 : -1), 0, CF_NI_N - 1);
             cf_send_config();
             break;
         case 2:
@@ -675,19 +692,19 @@ static void ui_select(int d)                     /* SELECT: the bass sound, or a
     cf_snd_step(CF_PART_BASS, d);
     if (cs.env_link)
         cf_env_follow();
-    cs.snd[1] = (uint16_t)cf_snd_pos(CF_PART_BASS);
+    ui_snd_heard(CF_PART_BASS);
     cf_pop(POP_SOUND_BASS, 1200);
 }
 static void ui_presets(int d)                    /* PRESETS: the chord sound (a sequencer's track open: its sound) */
 {
-    if ((cu.scr == SCR_SQED || (cu.scr == SCR_SQ && squ.pat < SQ_NPAT)) && squ.trk != SQ_CHORDS) {
-        sq_presets(d);                           /* (the frame's track's sound, heard on the keys) */
+    if (cu.scr == SCR_SQED || (cu.scr == SCR_SQ && squ.pat < SQ_NPAT)) {
+        sq_presets(d);                           /* (the pattern's own sound for the frame's track: 0.5) */
         return;
     }
     cf_snd_step(CF_PART_CHORD, d);
     if (cs.env_link)                             /* linked: the bass takes the new sound's envelope */
         cf_env_follow();
-    cs.snd[0] = (uint16_t)cf_snd_pos(CF_PART_CHORD);
+    ui_snd_heard(CF_PART_CHORD);
     cf_pop(POP_SOUND_CHORD, 1200);
 }
 static void ui_algo(int d)                       /* ALGORITHM: the chord algorithm (FX: moves the effect) */
@@ -964,20 +981,42 @@ static void cf_save_open(void)
     cf_save_name_init();
     ui_open(SCR_SAVE);
 }
+/* a user sound replaced (m: it now) or deleted (m 0): every pattern that keeps it as its own takes it as it is now,
+ * or goes back to HOME's sound (its tweak on it with it), so no pattern keeps a sound that is gone (its letter on HOME,
+ * PRESETS turning its sound) */
+static void ui_snd_slot_changed(uint32_t slot, const cf_snd_t *m)
+{
+    uint32_t p, t;
+    for (p = 0; p < SQ_NPAT; p++)
+        for (t = 0; t < 3u; t++) {
+            const cf_sref_t *r = &cfps.r[p][t];
+            if (!r->own || r->kind != PK_USER || r->slot != slot)
+                continue;
+            if (m) {
+                cfps_set(p, t, m);
+            } else {
+                cfps_set(p, t, 0);
+                cfk_drop(p + 1u, t);
+            }
+        }
+}
 static void cf_save_delete(void)
 {
     uint32_t part = cf_save_part();
     char b[24], nm[13];
     int res;
+    cf_sref_t home[3];
+    uint32_t cur = sq_cur_pat(), slot = cf_snd[part].slot;
     str_cpy(nm, cf_snd[part].name, sizeof nm);
+    sq_home_keep(home);
     res = cf_snd_delete(part);
     if (res) {
         cf_message(res == -1 ? "Only your sounds delete" : res == -3 ? "Safe mode: no saving" : "Delete error");
         return;
     }
-    cs.snd[0] = (uint16_t)cf_snd_pos(0);
-    cs.snd[1] = (uint16_t)cf_snd_pos(1);
-    cs.snd_layer = (uint16_t)cf_snd_pos(CF_PART_LAYER);
+    sq_home_put(home);                           /* (the row moved: HOME's sounds follow, as what they are) */
+    cfk_drop(cur < SQ_NPAT && cfps.r[cur][part].own ? cur + 1u : 0u, part);
+    ui_snd_slot_changed(slot, 0);                /* (only a user sound deletes: its slot) */
     cu.edited[part] = 0;
     cu.save_del = 0;
     str_cpy(b, "Deleted ", sizeof b);
@@ -995,15 +1034,33 @@ static void cf_save_do(void)
         name[n - 1u] = 0;
     for (i = 0; name[i] == ' '; i++)
         ;
-    res = cf_snd_save(part, cu.save_new, name + i);
-    if (res) {
-        cf_message(res == -1 ? "No free slot (32 used)" : res == -2 ? "INIT: save it as new" :
-                   res == -3 ? "Safe mode: no saving" : "Save error");
-        return;
+    {
+        cf_sref_t home[3];
+        uint32_t cur = sq_cur_pat();
+        int own = cur < SQ_NPAT && cfps.r[cur][part].own;
+        sq_home_keep(home);
+        res = cf_snd_save(part, cu.save_new, name + i);
+        if (res) {
+            cf_message(res == -1 ? "No free slot (32 used)" : res == -2 ? "INIT: save it as new" :
+                       res == -3 ? "Safe mode: no saving" : "Save error");
+            return;
+        }
+        sq_home_put(home);                       /* (the row moved: HOME's sounds follow, as what they are) */
+        if (!cu.save_new && cf_snd[part].kind == PK_USER)
+            ui_snd_slot_changed(cf_snd[part].slot, &cf_snd[part]);   /* (replaced, maybe renamed: who keeps it) */
+        if (own) {                               /* (the pattern's own sound is the saved one now, its tweak in it) */
+            cfps_set(cur, part, &cf_snd[part]);
+            cfk_drop(cur + 1u, part);
+            cfk_take(part, cur + 1u);
+        } else {
+            if (part == CF_PART_LAYER)
+                cs.snd_layer = (uint16_t)cf_snd_pos(part);
+            else
+                cs.snd[part] = (uint16_t)cf_snd_pos(part);
+            cfk_drop(0, part);
+            cfk_take(part, 0);
+        }
     }
-    cs.snd[0] = (uint16_t)cf_snd_pos(0);         /* (the row moved: the settings follow) */
-    cs.snd[1] = (uint16_t)cf_snd_pos(1);
-    cs.snd_layer = (uint16_t)cf_snd_pos(CF_PART_LAYER);
     cu.edited[part] = 0;
     snd_num(cf_snd_pos(part), num);
     str_cpy(b, "Saved ", sizeof b);
@@ -1077,7 +1134,26 @@ static void cf_save_poll(void)
 
 /* ------------------------------------------------------------- the keys --- */
 /* on SEL a chord button pressed is also picked for editing (it still plays) */
-static void ui_note_key(int key, int down)
+static void ui_note_key_aged(int key, int down, int age_ms);
+/* HOME's PRESETS / SELECT changed the sound you hear (0.5): the current pattern's own, if it has one, else HOME's */
+static void ui_snd_heard(uint32_t part)
+{
+    uint32_t cur = sq_cur_pat();
+    if (cur < SQ_NPAT && cfps.r[cur][part].own) {
+        cfps_set(cur, part, &cf_snd[part]);
+        cfk_drop(cur + 1u, part);                /* (another sound: its tweak goes) */
+        cfk_take(part, cur + 1u);
+        return;
+    }
+    if (part == CF_PART_CHORD)
+        cs.snd[0] = (uint16_t)cf_snd_pos(CF_PART_CHORD);
+    else if (part == CF_PART_BASS)
+        cs.snd[1] = (uint16_t)cf_snd_pos(CF_PART_BASS);
+    cfk_drop(0, part);
+    cfk_take(part, 0);
+}
+static void ui_note_key(int key, int down) { ui_note_key_aged(key, down, -1); }
+static void ui_note_key_aged(int key, int down, int age_ms)   /* age_ms: -1 the scan's (CF_KEY_T0) */
 {
     int idx;
     if (sq_key(key, down))                       /* (DRUMS: the keys pick the drum and set the steps) */
@@ -1107,7 +1183,7 @@ static void ui_note_key(int key, int down)
                                                   * keys are read: a take puts the chord where it was played, not where
                                                   * the frame let it through. The owner, 2026-10-20: a take from HOME
                                                   * "квантизируется не супер по таймингу") */
-        uint32_t age = down ? (fm1_ticks() - CF_KEY_T0(key % 27)) / FM1_TICKS_PER_US / 1000u : 0u;
+        uint32_t age = !down ? 0u : age_ms >= 0 ? (uint32_t)age_ms : (fm1_ticks() - CF_KEY_T0(key % 27)) / FM1_TICKS_PER_US / 1000u;
         cf_post(CFE_KEY, (uint32_t)key, age <= 250u ? age : 0u, down);   /* (longer: stale, none) */
     }
 }
@@ -1115,29 +1191,83 @@ static void ui_note_key(int key, int down)
 /* the keys, between the frame's tile rows too. Keys that changed in one scan went at once: the ones let go first,
  * then the chord buttons pressed, then the roots, so the new chord sounds with its new buttons (in key order a root
  * could come first and strike with the old ones: the owner heard the last chord slip in) */
+/* an outside keyboard's notes (NOTES IN FM-1 keys or Roots; cf_out.c cf_xq): FM-1 keys folds each note by octaves
+ * into F3..G5 and presses that key (the FM-1's own key down too: nothing more); Roots sends it as a root at its
+ * pitch, but on the SEQUENCER's DRUMS row, where the keys are drum pads, as a key. A note goes up the way it went down */
+static void cf_xq_drain(void)
+{
+    uint32_t w = cf_xq_w;
+    while (cf_xq_r != w) {
+        uint32_t e = cf_xq[cf_xq_r % CF_XQ], n = e & 0x7Fu, down = (e >> 7) & 1u, k, v;
+        uint32_t age = fm1_ms - cf_xq_ms[cf_xq_r % CF_XQ];
+        cf_xq_r++;
+        cu.idle_ms = 0;
+        if (down) {
+            if (cu.xnote[n])
+                continue;                        /* (already down: a repeated note-on) */
+            if (cs.notes_in == CF_NI_ROOTS && !sq_frame_trk(SQ_DRUMS)) {
+                cu.xnote[n] = 0xFF;
+                cu.xroots++;
+                cf_post(CFE_ROOT, n, age <= 250u ? age : 0u, 1);
+                continue;
+            }
+            for (k = n; k < 53u; k += 12u)
+                ;
+            while (k > 79u)
+                k -= 12u;
+            k -= 53u;
+            cu.xnote[n] = (uint8_t)(k + 1u);
+            if (cu.xcnt[k]++ == 0u) {
+                cu.xkeys |= 1u << k;
+                if (!((cu.pkeys >> k) & 1u))
+                    ui_note_key_aged((int)k, 1, age <= 250u ? (int)age : 0);
+            }
+        } else {
+            v = cu.xnote[n];
+            cu.xnote[n] = 0;
+            if (v == 0xFFu) {
+                if (cu.xroots)
+                    cu.xroots--;
+                cf_post(CFE_ROOT, n, 0, 0);
+            } else if (v) {
+                k = v - 1u;
+                if (cu.xcnt[k] && --cu.xcnt[k] == 0u) {
+                    cu.xkeys &= ~(1u << k);
+                    if (!((cu.pkeys >> k) & 1u))
+                        ui_note_key((int)k, 0);
+                }
+            }
+        }
+    }
+}
+
 static void cf_ui_pump(void)
 {
     /* tap: a key pressed and let go since the last read (the scan keeps its press, hal/fm1_input.h notes_pressed): a
      * frame that drew longer than the press lost it. Right after power-on (the intro, the first full redraw) a quick
      * tap on a chord button went that way, and the roots played single notes (the owner, 2026-10-21: "после включения
      * если выбрать тип аккорда и начать играть, то сначала играются по одной ноте") */
-    uint32_t now = fm1_in.notes, tap = fm1_input_note_edges() & ~now & ~cu.keys & ((1u << CF_NKEYS) - 1u);
-    uint32_t ch = (now ^ cu.keys) | tap, k, pass;
-    if (!ch || !cu.booted)
+    uint32_t now = fm1_in.notes, tap = fm1_input_note_edges() & ~now & ~cu.pkeys & ((1u << CF_NKEYS) - 1u);
+    uint32_t ch = ((now ^ cu.pkeys) | tap) & ~cu.xkeys, k, pass;   /* (a key held from outside too: no change) */
+    if (!cu.booted)
         return;
-    for (pass = 0; pass < 3u; pass++)
-        for (k = 0; k < CF_NKEYS; k++)
-            if ((ch >> k) & 1u) {
-                int down = (int)(((now | tap) >> k) & 1u), idx;
-                int btn = cf_key_role(cs.chord.algo, (int)k, &idx) == CF_ROLE_BUTTON;
-                if ((uint32_t)(down ? (btn ? 1 : 2) : 0) == pass)
-                    ui_note_key((int)k, down);
-            }
-    for (k = 0; k < CF_NKEYS; k++)               /* (a tap's release, after the roots it went with) */
-        if ((tap >> k) & 1u)
-            ui_note_key((int)k, 0);
-    cu.keys = now;
-    cu.idle_ms = 0;
+    if (ch) {
+        for (pass = 0; pass < 3u; pass++)
+            for (k = 0; k < CF_NKEYS; k++)
+                if ((ch >> k) & 1u) {
+                    int down = (int)(((now | tap) >> k) & 1u), idx;
+                    int btn = cf_key_role(cs.chord.algo, (int)k, &idx) == CF_ROLE_BUTTON;
+                    if ((uint32_t)(down ? (btn ? 1 : 2) : 0) == pass)
+                        ui_note_key((int)k, down);
+                }
+        for (k = 0; k < CF_NKEYS; k++)           /* (a tap's release, after the roots it went with) */
+            if ((tap >> k) & 1u & ~(cu.xkeys >> k))
+                ui_note_key((int)k, 0);
+        cu.idle_ms = 0;
+    }
+    cu.pkeys = now;
+    cf_xq_drain();
+    cu.keys = cu.pkeys | cu.xkeys;
 }
 
 static void cf_ui_input(void)
@@ -1145,6 +1275,8 @@ static void cf_ui_input(void)
     uint32_t rel = 0, pr = fm1_input_edges(&rel), i;
     int32_t d;
     sq_home_poll();                              /* (a take from HOME ended: its bars, before its undo is kept) */
+    sq_snd_poll();                               /* (the current pattern's sounds: 0.5) */
+    cf_glide_migrate();                          /* (the old GLIDE into HOME's sound, once) */
     sq_undo_poll();                              /* (before the input: the state an edit starts from) */
     cf_ui_pump();
     cf_save_poll();
@@ -1199,10 +1331,10 @@ static void ui_keycap(int key, cf_keycap_t *o)
     }
     if (role == CF_ROLE_BUTTON) {
         const cf_form_t *f = cf_button_form(&cs.chord, idx);
-        int on = (out->buttons >> idx) & 1u;
+        int hold = cf_is_off(&cs.chord, idx), on = hold ? out->hold : (out->buttons >> idx) & 1u;
         o->btn = 1;
-        if (cf_is_off(&cs.chord, idx))
-            str_cpy(o->top, "OFF", 8);
+        if (hold)
+            str_cpy(o->top, "HOLD", 8);          /* (the Off form's key: HOLD since 0.5, lit while on) */
         else
             cf_form_label(f, o->top);
         /* held and in the chord: pressed; latched (Lock): lit; held but left out of the chord (a minor button with
@@ -1420,7 +1552,8 @@ static void cf_leds(void)
             continue;
         }
         if (role == CF_ROLE_BUTTON) {
-            if ((out->buttons >> idx) & 1u)
+            if (cf_is_off(&cs.chord, idx) ? out->hold : (out->buttons >> idx) & 1u)   /* (HOLD: lit while on, as on the
+                                                                                       * screen) */
                 cf_led(lit, (uint32_t)id, 1);
             else if (cu.scr == SCR_SEL && idx == cu.sel_btn)
                 cf_led(blink ? mid : dim, (uint32_t)id, 1);
@@ -1442,21 +1575,59 @@ static void cf_leds(void)
     }
 }
 
+/* the GLIDE of 0.4.x / 0.5-rc1, one setting for every sound: HOME's chord sound takes it, as an edit of it, the
+ * first time it is the one playing (not a pattern's own: 0.5, each sound its own, cf_play.c cfp_glide_g); the setting
+ * goes to 0 for good. Every frame until then (cheap) */
+static void cf_glide_migrate(void)
+{
+    uint32_t want, g = 0;
+    if (!cs.glide_ms || cfk_own[CF_PART_CHORD] != 0u || cf_stage[CF_PART_CHORD].ready)
+        return;
+    want = (uint32_t)cs.glide_ms * FS / (1000u * CTL);
+    while (g < 127u && 1u + g * g / 8u < want)
+        g++;
+    if (!trk[CF_PART_CHORD].p[P_GLIDE] && g) {
+        fm1_irq_off();
+        trk[CF_PART_CHORD].p[P_GLIDE] = (int16_t)g;
+        fm1_irq_on();
+        cf_edited(CF_PART_CHORD);
+    }
+    cs.glide_ms = 0;
+}
+
 /* ------------------------------------------------------------ the plant --- */
 static uint32_t cu_last_serial;
-static uint8_t cu_last_onset, cu_last_arp;
+static uint8_t cu_last_onset, cu_last_arp, cu_last_src;
+/* a sequencer chord's flower quality from its pitch classes over the root (the keys' come from their type) */
+static uint8_t cf_fl_quality(uint32_t mask, int single)
+{
+    if (single)
+        return FL_Q_SINGLE;
+    if (mask & 1u << 4)
+        return (mask & 1u << 8) && !(mask & 1u << 7) ? FL_Q_AUG : FL_Q_MAJOR;
+    if (mask & 1u << 3)
+        return (mask & 1u << 6) && !(mask & 1u << 7) ? FL_Q_DIM : FL_Q_MINOR;
+    return mask & 1u << 5 ? FL_Q_SUS4 : mask & 1u << 2 ? FL_Q_SUS2 : FL_Q_MAJOR;
+}
 static void cf_feed_plant(uint32_t dt)
 {
     const cf_chord_out_t *o = &cf_sn.out;
-    uint32_t i, lvl = 0;
+    uint32_t i, lvl = 0, src, ser;
     /* the Top algorithms grow a plant, the Side ones a coral coloured by the key */
     flora_set_species(&flo, cs.chord.algo >= CF_ALG_SIDE ? FL_SP_CORAL : FL_SP_PLANT);
     flora_set_key(&flo, cs.chord.tonic);
     flo.backdrop = cs.backdrop;
-    if (o->serial != cu_last_serial) {
+    /* what the flower shows: the keys' chord while they sound, else the sequencer's CHORDS track's while it plays,
+     * as if played by hand (0.5, the owner: "то, что играется в секвенсоре я бы хотел, чтобы на главной
+     * отображалось на цветочке"), else nothing */
+    src = o->sounding && o->n ? 1u : cf_sn.sq_on && cf_sn.sq_dn ? 2u : 0u;
+    ser = src == 2u ? cf_sn.sq_dser : o->serial;
+    if (src != cu_last_src || ser != cu_last_serial) {
         fl_chord_t c;
-        cu_last_serial = o->serial;
-        if (o->sounding && o->n) {
+        int strike = src == 2u && (ser != cu_last_serial || cu_last_src != 2u);
+        cu_last_src = (uint8_t)src;
+        cu_last_serial = ser;
+        if (src == 1u) {
             static const uint8_t QT[CF_NTYPES] = {FL_Q_SINGLE, FL_Q_MAJOR, FL_Q_MINOR, FL_Q_DIM, FL_Q_AUG,
                                                    FL_Q_SUS2, FL_Q_SUS4, FL_Q_MAJOR};
             c.n = (uint8_t)(o->n > 8 ? 8 : o->n);
@@ -1466,6 +1637,17 @@ static void cf_feed_plant(uint32_t dt)
             c.quality = o->single ? FL_Q_SINGLE : QT[o->type < CF_NTYPES ? o->type : 1];
             c.bass = (int8_t)(cf_sn.nb ? cf_sn.bass[cf_sn.nb - 1] : -1);
             flora_set_chord(&flo, &c);
+        } else if (src == 2u) {
+            c.n = cf_sn.sq_dn;
+            for (i = 0; i < c.n; i++)
+                c.note[i] = cf_sn.sq_dnote[i];
+            c.root = (uint8_t)(cf_sn.sq_droot % 12u);
+            c.quality = cf_fl_quality(cf_sn.sq_dmask, cf_sn.sq_dsingle);
+            c.bass = (int8_t)(cf_sn.sq_bn ? cf_sn.sq_bass[cf_sn.sq_bn - 1] : -1);
+            flora_set_chord(&flo, &c);
+            if (strike)                          /* (each chord the sequencer strikes sparkles, as the keys' onset) */
+                for (i = 0; i < c.n; i++)
+                    flora_note_on(&flo, c.note[i], cs.vel);
         } else {
             c.n = 0;
             flora_set_chord(&flo, &c);
@@ -1517,6 +1699,8 @@ static void cf_ui_init(void)
     cf_out_init();
     if (!cr_safe) {
         sq_load();                               /* the sequencer's patterns and song */
+        cfps_load();                             /* .. their own sounds (0.5) */
+        cfk_load();                              /* .. the sounds' tweaks (put on them as they load: cfk_take) */
         sq_from_loop();                          /* (a loop kept by 0.3.1 or before, or restored: a pattern now) */
         sq_resume();                             /* (what PLAY on HOME played before the power-off) */
     } else {
@@ -1545,8 +1729,12 @@ static void cf_ui_init(void)
         cf_snd_load_index(CF_PART_LAYER, 2);
     cs.snd_layer = (uint16_t)cf_snd_pos(CF_PART_LAYER);
     cf_drums_init();
-    cfk_load();                                  /* (the sounds' edits not SAVEd, on the sounds they were made on) */
+    sq_home_poll();                              /* (the pattern PLAY plays, if none was kept) */
+    sq_snd_force = 1;
+    sq_snd_poll();                               /* (.. its own sounds, every sound's tweak on it: 0.5) */
+    cf_glide_migrate();
     cu.env_tgt = cs.env_link ? 0u : 1u;
+    cu.arp_on = cs.arp_keep;                     /* (the arpeggiator as it was at the power-off: cf_settings.c) */
     if (cs.env_link)
         cf_env_follow();
     cf_click_sound = cs.click;
