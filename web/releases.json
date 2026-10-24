@@ -1,3 +1,17 @@
 {
- "releases": []
+ "releases": [
+  {
+   "version": "0.9.0",
+   "tag": "v0.9.0",
+   "sha256": "d435284741bf3d5f88b280703c96636109e1291e60ac7a16d7817c9ccb9249a5",
+   "pkg": "coralflower-0.9.0.fwsc",
+   "date": "2026-10-24",
+   "title": "Wand, hands and beams",
+   "notes": [
+    "Granular is an effect on everything you play (the GRN tile on the FX screen), with tempo-synced rhythm and a fifth or octave layer.",
+    "The granular page is a wizard's wand; Reverb is a pair of hands casting a spell; Phaser is a hand shooting energy beams.",
+    "Nine new sounds, no keyboard strip, and the startup line reads an Obby Mall synth."
+   ]
+  }
+ ]
 }
